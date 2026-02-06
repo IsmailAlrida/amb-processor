@@ -572,7 +572,7 @@ Comments: // ; #
             self,
             "Open Assembly",
             "",
-            "Assembly (*.asm *.s *.txt);;All Files (*)",
+            "AMB Assembly (*.ambasm)",
         )
         if not path:
             return
@@ -594,10 +594,12 @@ Comments: // ; #
             self,
             "Save Assembly",
             "",
-            "Assembly (*.asm *.s *.txt);;All Files (*)",
+            "AMB Assembly (*.ambasm)",
         )
         if not path:
             return
+        if not path.lower().endswith(".ambasm"):
+            path = f"{path}.ambasm"
         self.current_file = path
         self.save_file()
 
