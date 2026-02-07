@@ -11,12 +11,17 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from .assembler import AsmError, assemble, parse_number
 from .cpu import CPU
 from .isa import (
+    ADDR_BITS,
     ADDR_MASK,
     GEN_OPCODES,
     IMM_OPCODES,
+    INSTR_BITS,
+    INSTR_BYTES,
+    INSTR_STORAGE_BITS,
     JUMP_OPCODES,
     REG_NAMES,
     RR_OPCODES,
+    WORD_BITS,
     WORD_MASK,
 )
 
@@ -263,7 +268,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         mem_layout.setSpacing(6)
 
         mem_header = QtWidgets.QHBoxLayout()
-        self.mem_start = QtWidgets.QLineEdit("0x0000000")
+        self.mem_start = QtWidgets.QLineEdit(self._format_hex(0, ADDR_BITS))
         self.mem_start.setPlaceholderText("Start address (hex or dec)")
         self.mem_count = QtWidgets.QSpinBox()
         self.mem_count.setRange(1, 1024)
@@ -756,6 +761,14 @@ Comments: // ; #
         else:
             item.setBackground(self._default_bg)
             item.setForeground(self._default_fg)
+
+    @staticmethod
+    def _hex_digits(bits: int) -> int:
+        return max(1, (bits + 3) // 4)
+
+    def _format_hex(self, value: int, bits: int) -> str:
+        digits = self._hex_digits(bits)
+        return f"0x{value & ((1 << bits) - 1):0{digits}X}"
 
     def _update_pulse_brush(self) -> None:
         bright = QtGui.QColor("#00ff6a")
