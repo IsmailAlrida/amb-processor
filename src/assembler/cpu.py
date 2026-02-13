@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .isa import (
@@ -27,9 +27,19 @@ from .isa import (
 class Memory:
     def __init__(self) -> None:
         self._data: dict[int, int] = {}
+        self._dirty: set[int] = set()
 
     def clear(self) -> None:
         self._data.clear()
+        self._dirty.clear()
+
+    def clear_dirty(self) -> None:
+        self._dirty.clear()
+
+    def consume_dirty(self) -> set[int]:
+        dirty = set(self._dirty)
+        self._dirty.clear()
+        return dirty
 
     def read_byte(self, addr: int) -> int:
         addr &= ADDR_MASK
@@ -38,6 +48,9 @@ class Memory:
     def write_byte(self, addr: int, value: int) -> None:
         addr &= ADDR_MASK
         value &= 0xFF
+        prev = self._data.get(addr, 0)
+        if prev != value:
+            self._dirty.add(addr)
         if value == 0:
             self._data.pop(addr, None)
         else:
@@ -82,6 +95,8 @@ class ExecResult:
     ic: int
     halted: bool
     message: Optional[str] = None
+    changed_registers: set[int] = field(default_factory=set)
+    changed_memory: set[int] = field(default_factory=set)
 
 
 class CPU:
@@ -100,11 +115,15 @@ class CPU:
         for word in words:
             self.memory.write_word(addr, word)
             addr = (addr + 2) & ADDR_MASK
+        self.memory.clear_dirty()
         self.registers[REG_IC] = start_addr & ADDR_MASK
 
     def step(self) -> ExecResult:
         if self.halted:
             return ExecResult(ic=self.registers[REG_IC], halted=True, message="CPU halted")
+
+        pre_regs = list(self.registers)
+        self.memory.clear_dirty()
 
         ic = self.registers[REG_IC] & ADDR_MASK
         word = self.memory.read_word(ic)
@@ -128,11 +147,11 @@ class CPU:
                 addr = (imm8 + self.registers[REG_MEMOFF]) & ADDR_MASK
                 self.memory.write_word28(addr, self.registers[ra])
             else:
-                return ExecResult(ic=ic, halted=False, message="Unknown immediate opcode")
+                return self._build_result(pre_regs, ic, False, "Unknown immediate opcode")
 
             self.registers[ra] &= WORD_MASK
             self.registers[REG_IC] = next_ic
-            return ExecResult(ic=next_ic, halted=False)
+            return self._build_result(pre_regs, next_ic, False)
 
         if op3 in (0b010, 0b011):
             op4 = (instr >> 11) & 0xF
@@ -159,10 +178,10 @@ class CPU:
                 ):
                     do_jump(True)
             else:
-                return ExecResult(ic=ic, halted=False, message="Unknown jump opcode")
+                return self._build_result(pre_regs, ic, False, "Unknown jump opcode")
 
             self.registers[REG_IC] = next_ic
-            return ExecResult(ic=next_ic, halted=False)
+            return self._build_result(pre_regs, next_ic, False)
 
         op7 = (instr >> 8) & 0x7F
         ra = (instr >> 4) & 0xF
@@ -171,11 +190,11 @@ class CPU:
         if op7 == GEN_OPCODES["HLT"]:
             self.halted = True
             self.registers[REG_IC] = ic
-            return ExecResult(ic=ic, halted=True, message="HLT")
+            return self._build_result(pre_regs, ic, True, "HLT")
 
         if op7 == GEN_OPCODES["NOP"]:
             self.registers[REG_IC] = next_ic
-            return ExecResult(ic=next_ic, halted=False)
+            return self._build_result(pre_regs, next_ic, False)
 
         a_val = self.registers[ra] & WORD_MASK
         b_val = self.registers[rb] & WORD_MASK
@@ -214,8 +233,29 @@ class CPU:
         elif op7 == RR_OPCODES["MOV"]:
             self.registers[ra] = b_val & WORD_MASK
         else:
-            return ExecResult(ic=ic, halted=False, message="Unknown register opcode")
+            return self._build_result(pre_regs, ic, False, "Unknown register opcode")
 
         self.registers[ra] &= WORD_MASK
         self.registers[REG_IC] = next_ic
-        return ExecResult(ic=next_ic, halted=False)
+        return self._build_result(pre_regs, next_ic, False)
+
+    def _build_result(
+        self,
+        pre_regs: list[int],
+        ic: int,
+        halted: bool,
+        message: Optional[str] = None,
+    ) -> ExecResult:
+        changed_registers = {
+            idx
+            for idx, (before, after) in enumerate(zip(pre_regs, self.registers))
+            if before != after
+        }
+        changed_memory = self.memory.consume_dirty()
+        return ExecResult(
+            ic=ic,
+            halted=halted,
+            message=message,
+            changed_registers=changed_registers,
+            changed_memory=changed_memory,
+        )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 import textwrap
@@ -553,6 +554,16 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.program = None
         self.addr_to_line = {}
         self.current_file: str | None = None
+        self._last_reg_changes: set[int] = set()
+        self._last_mem_changes: set[int] = set()
+        self._highlight_bg = QtGui.QBrush(QtGui.QColor("#00ff6a"))
+        self._highlight_fg = QtGui.QBrush(QtGui.QColor("#001"))
+        self._default_bg = QtGui.QBrush(QtGui.QColor("#020b02"))
+        self._default_fg = QtGui.QBrush(QtGui.QColor("#00ff6a"))
+        self._pulse_phase = 0.0
+        self._pulse_timer = QtCore.QTimer(self)
+        self._pulse_timer.setInterval(120)
+        self._pulse_timer.timeout.connect(self._advance_pulse)
 
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(200)
@@ -1080,7 +1091,7 @@ Comments: // ; #
                 selection-color: #c8ffe5;
             }
             QTableWidget { gridline-color: #0b7c49; }
-            QTableWidget::item { background: #031003; color: #80ffc6; }
+            QTableWidget::item { padding: 1px 4px; }
             QTableWidget::item:selected { background: #104528; color: #d6ffec; }
             QTableCornerButton::section { background: #0a3520; border: 1px solid #0b7c49; }
             QHeaderView::section {
@@ -1378,8 +1389,11 @@ Comments: // ; #
         self.addr_to_line = program.addr_to_line
         self.cpu.reset()
         self.cpu.load_program(program.words)
+        self._last_reg_changes = set()
+        self._last_mem_changes = set()
         self.update_register_view()
         self.update_memory_view()
+        self._sync_pulse()
         self.highlight_line(self.addr_to_line.get(0))
         self.statusBar().showMessage("Assembled successfully", 3000)
 
@@ -1406,8 +1420,11 @@ Comments: // ; #
             self.cpu.load_program(self.program.words)
         else:
             self.cpu.reset()
+        self._last_reg_changes = set()
+        self._last_mem_changes = set()
         self.update_register_view()
         self.update_memory_view()
+        self._sync_pulse()
         self.highlight_line(self.addr_to_line.get(0))
         self.statusBar().showMessage("Reset", 2000)
 
@@ -1417,8 +1434,11 @@ Comments: // ; #
             if not self.program:
                 return
         result = self.cpu.step()
+        self._last_reg_changes = result.changed_registers
+        self._last_mem_changes = result.changed_memory
         self.update_register_view()
         self.update_memory_view()
+        self._sync_pulse()
         line_no = self.addr_to_line.get(result.ic)
         if line_no:
             self.highlight_line(line_no)
@@ -1441,12 +1461,86 @@ Comments: // ; #
         selection.format.setProperty(QtGui.QTextFormat.Property.FullWidthSelection, True)
         self.editor.setExtraSelections([selection])
 
+    def _apply_cell_style(self, item: QtWidgets.QTableWidgetItem, highlight: bool) -> None:
+        if highlight:
+            item.setBackground(self._highlight_bg)
+            item.setForeground(self._highlight_fg)
+        else:
+            item.setBackground(self._default_bg)
+            item.setForeground(self._default_fg)
+
+    def _update_pulse_brush(self) -> None:
+        bright = QtGui.QColor("#00ff6a")
+        dark = QtGui.QColor("#007a3a")
+        t = 0.5 + 0.5 * math.sin(self._pulse_phase)
+        r = int(dark.red() + (bright.red() - dark.red()) * t)
+        g = int(dark.green() + (bright.green() - dark.green()) * t)
+        b = int(dark.blue() + (bright.blue() - dark.blue()) * t)
+        self._highlight_bg = QtGui.QBrush(QtGui.QColor(r, g, b))
+
+    def _refresh_highlights(self) -> None:
+        for row in range(self.reg_table.rowCount()):
+            highlight = row in self._last_reg_changes
+            for col in range(self.reg_table.columnCount()):
+                item = self.reg_table.item(row, col)
+                if item is not None:
+                    self._apply_cell_style(item, highlight)
+
+        start = self._parse_address(self.mem_start.text())
+        if start is None:
+            return
+        for i in range(self.mem_table.rowCount()):
+            addr = (start + i) & ADDR_MASK
+            highlight = addr in self._last_mem_changes
+            for col in range(self.mem_table.columnCount()):
+                item = self.mem_table.item(i, col)
+                if item is not None:
+                    self._apply_cell_style(item, highlight)
+
+    def _advance_pulse(self) -> None:
+        if not (self._last_reg_changes or self._last_mem_changes):
+            self._pulse_timer.stop()
+            return
+        self._pulse_phase += 0.35
+        self._update_pulse_brush()
+        self._refresh_highlights()
+
+    def _sync_pulse(self) -> None:
+        if self._last_reg_changes or self._last_mem_changes:
+            self._pulse_phase = 0.0
+            self._update_pulse_brush()
+            if not self._pulse_timer.isActive():
+                self._pulse_timer.start()
+            self._refresh_highlights()
+        else:
+            if self._pulse_timer.isActive():
+                self._pulse_timer.stop()
+            self._refresh_highlights()
+
+    def _adjust_memory_range_for_changes(self, start: int, count: int) -> tuple[int, int]:
+        if not self._last_mem_changes:
+            return start, count
+        min_addr = min(self._last_mem_changes)
+        max_addr = max(self._last_mem_changes)
+        range_len = max_addr - min_addr + 1
+        new_count = count
+        if range_len > new_count:
+            new_count = min(range_len, self.mem_count.maximum())
+        if min_addr < start or max_addr >= start + new_count:
+            start = min_addr
+        return start, new_count
+
     def update_register_view(self) -> None:
         self.reg_table.setRowCount(len(REG_NAMES))
         for row, name in enumerate(REG_NAMES):
             val = self.cpu.registers[row] & WORD_MASK
-            self.reg_table.setItem(row, 0, QtWidgets.QTableWidgetItem(name))
-            self.reg_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f"0x{val:07X}"))
+            highlight = row in self._last_reg_changes
+            name_item = QtWidgets.QTableWidgetItem(name)
+            value_item = QtWidgets.QTableWidgetItem(f"0x{val:07X}")
+            self._apply_cell_style(name_item, highlight)
+            self._apply_cell_style(value_item, highlight)
+            self.reg_table.setItem(row, 0, name_item)
+            self.reg_table.setItem(row, 1, value_item)
 
     def _parse_address(self, text: str) -> int | None:
         try:
@@ -1461,12 +1555,22 @@ Comments: // ; #
             self.statusBar().showMessage("Invalid memory start address", 3000)
             return
         count = self.mem_count.value()
+        start, count = self._adjust_memory_range_for_changes(start, count)
+        if count != self.mem_count.value():
+            self.mem_count.setValue(count)
+        if start != self._parse_address(self.mem_start.text()):
+            self.mem_start.setText(f"0x{start:07X}")
         self.mem_table.setRowCount(count)
         for i in range(count):
             addr = (start + i) & ADDR_MASK
             val = self.cpu.memory.read_byte(addr)
-            self.mem_table.setItem(i, 0, QtWidgets.QTableWidgetItem(f"0x{addr:07X}"))
-            self.mem_table.setItem(i, 1, QtWidgets.QTableWidgetItem(f"0x{val:02X}"))
+            highlight = addr in self._last_mem_changes
+            addr_item = QtWidgets.QTableWidgetItem(f"0x{addr:07X}")
+            val_item = QtWidgets.QTableWidgetItem(f"0x{val:02X}")
+            self._apply_cell_style(addr_item, highlight)
+            self._apply_cell_style(val_item, highlight)
+            self.mem_table.setItem(i, 0, addr_item)
+            self.mem_table.setItem(i, 1, val_item)
 
     def show_help(self) -> None:
         if self.help_dock.isVisible():
