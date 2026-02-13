@@ -234,21 +234,38 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                 popup.setVerticalScrollMode(
                     QtWidgets.QAbstractItemView.ScrollMode.ScrollPerItem
                 )
-                popup.setMinimumWidth(440)
+                popup.setMinimumWidth(220)
                 popup_font = QtGui.QFont(self.font())
                 popup_font.setPointSizeF(max(8.5, popup_font.pointSizeF() - 0.5))
                 popup.setFont(popup_font)
-                popup.header().setObjectName("completionPopupHeader")
+                popup.setHeaderHidden(True)
                 popup.header().setStretchLastSection(False)
-                popup.header().setDefaultAlignment(
-                    QtCore.Qt.AlignmentFlag.AlignLeft
-                    | QtCore.Qt.AlignmentFlag.AlignVCenter
-                )
                 popup.header().setSectionResizeMode(
                     0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
                 )
                 popup.header().setSectionResizeMode(
                     1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+                )
+                # Popup styling is set directly here because completer popups can
+                # be top-level and may not always inherit the main-window stylesheet.
+                popup.setStyleSheet(
+                    """
+                    QTreeView {
+                        background: rgba(2, 2, 2, 242);
+                        color: #8dffd0;
+                        border: 2px solid #18d77f;
+                        border-radius: 0px;
+                        outline: none;
+                    }
+                    QTreeView::item {
+                        padding: 1px 6px;
+                        border: none;
+                    }
+                    QTreeView::item:selected {
+                        background: rgba(10, 56, 30, 220);
+                        color: #e9fff5;
+                    }
+                    """
                 )
                 self._completer.setPopup(popup)
         except Exception as exc:
@@ -306,17 +323,35 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             if screen is not None:
                 available = screen.availableGeometry()
                 available_height = max(220, int(available.height() * 0.45))
-                available_width = max(520, int(available.width() * 0.72))
-            header_height = popup.header().height() if popup.header().isVisible() else 0
+                available_width = max(360, int(available.width() * 0.52))
+            header_height = 0
             max_rows_by_screen = max(8, (available_height - header_height - 20) // row_height)
             visible_rows = min(max_rows_by_screen, row_count)
             self._completer.setMaxVisibleItems(visible_rows)
 
             cursor_rect = self.cursorRect()
-            token_width = max(120, popup.sizeHintForColumn(0))
-            kind_width = max(110, popup.sizeHintForColumn(1))
-            popup_width = token_width + kind_width + popup.frameWidth() * 2 + 34
-            popup_width = min(max(460, popup_width), available_width)
+            font_metrics = popup.fontMetrics()
+            max_token_width = 0
+            max_kind_width = 0
+            for row in range(row_count):
+                token_text = str(completion_model.index(row, 0).data() or "")
+                kind_text = str(completion_model.index(row, 1).data() or "")
+                max_token_width = max(max_token_width, font_metrics.horizontalAdvance(token_text))
+                max_kind_width = max(max_kind_width, font_metrics.horizontalAdvance(kind_text))
+            side_padding = 22
+            inter_column_gap = 20
+            popup_width = (
+                max_token_width
+                + max_kind_width
+                + (2 * side_padding)
+                + inter_column_gap
+                + (popup.frameWidth() * 2)
+            )
+            if row_count > visible_rows:
+                popup_width += popup.style().pixelMetric(
+                    QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent
+                ) + 4
+            popup_width = min(max(260, popup_width), available_width)
             cursor_rect.setWidth(popup_width)
             self._completer.complete(cursor_rect)
         except Exception as exc:
@@ -842,6 +877,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         add_action("Stop", self.stop)
         add_action("Reset", self.reset_cpu)
         toolbar.addSeparator()
+        add_action("Authors", self.show_authors)
         add_action("Help", self.show_help)
 
     def _build_titlebar(self) -> None:
@@ -1427,6 +1463,155 @@ Comments: // ; #
         else:
             self.help_dock.show()
             self.help_dock.raise_()
+
+    def show_authors(self) -> None:
+        dialog = QtWidgets.QDialog(self)
+        dialog.setObjectName("authorsDialog")
+        dialog.setWindowTitle("Project Authors")
+        dialog.setModal(True)
+        dialog.setWindowFlags(
+            QtCore.Qt.WindowType.Dialog | QtCore.Qt.WindowType.FramelessWindowHint
+        )
+        dialog.resize(700, 320)
+        dialog.setStyleSheet(
+            """
+            QDialog#authorsDialog {
+                background: #020a04;
+                border: 2px solid #18d77f;
+                border-radius: 0px;
+            }
+            QDialog#authorsDialog QLabel {
+                color: #8dffd0;
+            }
+            QDialog#authorsDialog QTableWidget {
+                background: #010703;
+                color: #8dffd0;
+                border: 1px solid #0d8f54;
+                gridline-color: #0d8f54;
+            }
+            QDialog#authorsDialog QHeaderView::section {
+                background: #07301b;
+                color: #d5ffee;
+                border: 1px solid #0d8f54;
+                padding: 6px 8px;
+            }
+            QDialog#authorsDialog QPushButton {
+                background: #06210d;
+                color: #8dffd0;
+                border: 1px solid #18d77f;
+                padding: 5px 14px;
+                min-width: 90px;
+            }
+            QDialog#authorsDialog QPushButton:hover {
+                background: #0b3a20;
+                color: #e8fff5;
+            }
+            QDialog#authorsDialog QPushButton:pressed {
+                background: #10522e;
+            }
+            QDialog#authorsDialog QPushButton#authorsTopClose {
+                min-width: 0px;
+                padding: 0px;
+                background: #2a0f14;
+                color: #ffc7d3;
+                border: 1px solid #8f2f40;
+            }
+            QDialog#authorsDialog QPushButton#authorsTopClose:hover {
+                background: #5a1b2b;
+                color: #ffe4ea;
+            }
+            """
+        )
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(8)
+
+        top_row = QtWidgets.QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(8)
+        title = QtWidgets.QLabel("AMB Processor Group Project", dialog)
+        title.setStyleSheet("font-size: 14pt; font-weight: 700; color: #bfffe0;")
+        title.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+        top_row.addWidget(title, 1)
+        top_close_btn = QtWidgets.QPushButton("X", dialog)
+        top_close_btn.setObjectName("authorsTopClose")
+        top_close_btn.setFixedSize(28, 24)
+        top_close_btn.clicked.connect(dialog.reject)
+        top_row.addWidget(top_close_btn, 0, QtCore.Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(top_row)
+
+        course = QtWidgets.QLabel(
+            "<b>Course:</b> ELEC 462 -- Computer Architecture and Organization", dialog
+        )
+        course.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        course.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(course)
+
+        instructor = QtWidgets.QLabel("<b>Instructor:</b> Dr Abulhalim Jallad", dialog)
+        instructor.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        instructor.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.addWidget(instructor)
+
+        table = QtWidgets.QTableWidget(dialog)
+        table.setColumnCount(2)
+        table.setRowCount(3)
+        table.setHorizontalHeaderLabels(["Student Name", "Student ID"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        table.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(
+            0, QtWidgets.QHeaderView.ResizeMode.Stretch
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.setAlternatingRowColors(False)
+        table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
+        )
+
+        rows = [
+            ("Alrida Ismail", "700040283"),
+            ("Muddathir Yousif", "700039149"),
+            ("Basel Alhomsi", "700036896"),
+        ]
+        for r, (name, sid) in enumerate(rows):
+            table.setItem(r, 0, QtWidgets.QTableWidgetItem(name))
+            table.setItem(r, 1, QtWidgets.QTableWidgetItem(sid))
+
+        # Subtle highlight for your row without extra role labels.
+        for c in range(2):
+            item = table.item(0, c)
+            if item is not None:
+                item.setBackground(QtGui.QColor("#0a3320"))
+
+        table.resizeRowsToContents()
+        total_rows_height = sum(table.rowHeight(r) for r in range(table.rowCount()))
+        exact_height = (
+            table.horizontalHeader().height()
+            + total_rows_height
+            + (table.frameWidth() * 2)
+        )
+        table.setFixedHeight(exact_height)
+        layout.addWidget(table)
+
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.addStretch(1)
+        close_btn = QtWidgets.QPushButton("Close", dialog)
+        close_btn.clicked.connect(dialog.accept)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
+
+        QtGui.QShortcut(QtGui.QKeySequence("Esc"), dialog, activated=dialog.reject)
+
+        dialog.exec()
 
 
 def main() -> None:
