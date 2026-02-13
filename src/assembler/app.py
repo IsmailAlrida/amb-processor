@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import sys
 import textwrap
+import traceback
+import faulthandler
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
@@ -32,15 +36,56 @@ class LineNumberArea(QtWidgets.QWidget):
         self.editor.lineNumberAreaPaintEvent(event)
 
 
+class LintHighlighter(QtGui.QSyntaxHighlighter):
+    def __init__(self, document: QtGui.QTextDocument) -> None:
+        super().__init__(document)
+        self._error_spans: dict[int, tuple[int, int]] = {}
+        self._error_format = QtGui.QTextCharFormat()
+        self._error_format.setUnderlineStyle(
+            QtGui.QTextCharFormat.UnderlineStyle.WaveUnderline
+        )
+        self._error_format.setUnderlineColor(QtGui.QColor("#ff5a70"))
+
+    def set_error_spans(self, error_spans: dict[int, tuple[int, int]]) -> None:
+        self._error_spans = error_spans
+        self.rehighlight()
+
+    def highlightBlock(self, text: str) -> None:
+        line_no = self.currentBlock().blockNumber() + 1
+        span = self._error_spans.get(line_no)
+        if span is None:
+            return
+        if not text:
+            return
+        start, length = span
+        if start < 0:
+            start = 0
+        if length <= 0:
+            length = len(text)
+        max_len = max(0, len(text) - start)
+        if max_len <= 0:
+            return
+        length = min(length, max_len)
+        self.setFormat(start, length, self._error_format)
+
+
 class CodeEditor(QtWidgets.QPlainTextEdit):
     def __init__(self) -> None:
         super().__init__()
         self.line_number_area = LineNumberArea(self)
+        self._completer: QtWidgets.QCompleter | None = None
+        self._completion_model = QtGui.QStandardItemModel(self)
+        self._completion_signature: tuple[tuple[str, str], ...] = ()
+        self._lint_errors: dict[int, str] = {}
+        self._lint_highlighter = LintHighlighter(self.document())
         self.blockCountChanged.connect(self.updateLineNumberAreaWidth)
         self.updateRequest.connect(self.updateLineNumberArea)
         self.cursorPositionChanged.connect(self.highlightCurrentLine)
         self.updateLineNumberAreaWidth(0)
         self._apply_caret_palette()
+
+    def _log_nonfatal(self, context: str, exc: Exception) -> None:
+        print(f"[CodeEditor] {context}: {exc}")
 
     def _apply_caret_palette(self) -> None:
         palette = self.palette()
@@ -122,6 +167,255 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         selection.cursor = self.textCursor()
         selection.cursor.clearSelection()
         self.setExtraSelections([selection])
+
+    def set_completion_words(self, entries: dict[str, str] | list[str]) -> None:
+        try:
+            if isinstance(entries, dict):
+                normalized_entries = {
+                    str(token): str(kind)
+                    for token, kind in entries.items()
+                    if str(token).strip()
+                }
+            else:
+                normalized_entries = {
+                    str(token): "SYMBOL" for token in entries if str(token).strip()
+                }
+
+            signature = tuple(
+                sorted(
+                    ((token, kind) for token, kind in normalized_entries.items()),
+                    key=lambda pair: pair[0].upper(),
+                )
+            )
+            if signature == self._completion_signature and self._completer is not None:
+                return
+
+            if self._completer is not None and self._completer.popup().isVisible():
+                self._completer.popup().hide()
+
+            self._completion_signature = signature
+            self._completion_model.clear()
+            self._completion_model.setHorizontalHeaderLabels(["Token", "Type"])
+            for token, kind in signature:
+                token_item = QtGui.QStandardItem(token)
+                type_item = QtGui.QStandardItem(kind)
+                token_item.setEditable(False)
+                type_item.setEditable(False)
+                type_item.setTextAlignment(
+                    QtCore.Qt.AlignmentFlag.AlignRight
+                    | QtCore.Qt.AlignmentFlag.AlignVCenter
+                )
+                self._completion_model.appendRow([token_item, type_item])
+
+            if self._completer is None:
+                self._completer = QtWidgets.QCompleter(self._completion_model, self)
+                self._completer.setWidget(self)
+                self._completer.setCompletionColumn(0)
+                self._completer.setCompletionRole(QtCore.Qt.ItemDataRole.DisplayRole)
+                self._completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
+                self._completer.setCompletionMode(QtWidgets.QCompleter.CompletionMode.PopupCompletion)
+                self._completer.setFilterMode(QtCore.Qt.MatchFlag.MatchStartsWith)
+                self._completer.setMaxVisibleItems(24)
+                # Explicit QString overload avoids QModelIndex payload mismatches.
+                self._completer.activated[str].connect(self._insert_completion)
+
+                popup = QtWidgets.QTreeView(self)
+                popup.setObjectName("completionPopup")
+                popup.setRootIsDecorated(False)
+                popup.setItemsExpandable(False)
+                popup.setAllColumnsShowFocus(True)
+                popup.setUniformRowHeights(True)
+                popup.setAlternatingRowColors(False)
+                popup.setSortingEnabled(False)
+                popup.setIndentation(0)
+                popup.setHorizontalScrollBarPolicy(
+                    QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                )
+                popup.setVerticalScrollMode(
+                    QtWidgets.QAbstractItemView.ScrollMode.ScrollPerItem
+                )
+                popup.setMinimumWidth(440)
+                popup_font = QtGui.QFont(self.font())
+                popup_font.setPointSizeF(max(8.5, popup_font.pointSizeF() - 0.5))
+                popup.setFont(popup_font)
+                popup.header().setObjectName("completionPopupHeader")
+                popup.header().setStretchLastSection(False)
+                popup.header().setDefaultAlignment(
+                    QtCore.Qt.AlignmentFlag.AlignLeft
+                    | QtCore.Qt.AlignmentFlag.AlignVCenter
+                )
+                popup.header().setSectionResizeMode(
+                    0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+                )
+                popup.header().setSectionResizeMode(
+                    1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents
+                )
+                self._completer.setPopup(popup)
+        except Exception as exc:
+            self._completion_signature = ()
+            self._log_nonfatal("set_completion_words", exc)
+
+    def set_lint_errors(self, errors: dict[int, str], spans: dict[int, tuple[int, int]] | None = None) -> None:
+        try:
+            self._lint_errors = errors
+            self._lint_highlighter.set_error_spans(spans or {})
+        except Exception as exc:
+            self._log_nonfatal("set_lint_errors", exc)
+
+    def _completion_prefix(self) -> str:
+        cursor = self.textCursor()
+        cursor.select(QtGui.QTextCursor.SelectionType.WordUnderCursor)
+        return cursor.selectedText()
+
+    def _show_completion_popup(self, force: bool = False) -> None:
+        try:
+            if self._completer is None:
+                return
+            prefix = "" if force else self._completion_prefix()
+            if not force and len(prefix) < 1:
+                self._completer.popup().hide()
+                return
+
+            self._completer.setCompletionPrefix(prefix)
+            if self._completer.completionCount() == 0:
+                self._completer.popup().hide()
+                return
+
+            popup = self._completer.popup()
+            completion_model = self._completer.completionModel()
+            if completion_model is None:
+                popup.hide()
+                return
+
+            popup.resizeColumnToContents(0)
+            popup.resizeColumnToContents(1)
+
+            top_index = completion_model.index(0, 0)
+            if top_index.isValid():
+                popup.setCurrentIndex(top_index)
+
+            row_count = max(1, self._completer.completionCount())
+            row_height = popup.sizeHintForRow(0)
+            if row_height <= 0:
+                row_height = popup.fontMetrics().height() + 6
+            screen = QtGui.QGuiApplication.screenAt(self.mapToGlobal(self.cursorRect().bottomRight()))
+            if screen is None:
+                screen = QtGui.QGuiApplication.primaryScreen()
+            available_height = 500
+            available_width = 900
+            if screen is not None:
+                available = screen.availableGeometry()
+                available_height = max(220, int(available.height() * 0.45))
+                available_width = max(520, int(available.width() * 0.72))
+            header_height = popup.header().height() if popup.header().isVisible() else 0
+            max_rows_by_screen = max(8, (available_height - header_height - 20) // row_height)
+            visible_rows = min(max_rows_by_screen, row_count)
+            self._completer.setMaxVisibleItems(visible_rows)
+
+            cursor_rect = self.cursorRect()
+            token_width = max(120, popup.sizeHintForColumn(0))
+            kind_width = max(110, popup.sizeHintForColumn(1))
+            popup_width = token_width + kind_width + popup.frameWidth() * 2 + 34
+            popup_width = min(max(460, popup_width), available_width)
+            cursor_rect.setWidth(popup_width)
+            self._completer.complete(cursor_rect)
+        except Exception as exc:
+            self._log_nonfatal("show_completion_popup", exc)
+
+    def _accept_current_completion(self) -> bool:
+        if self._completer is None:
+            return False
+        popup = self._completer.popup()
+        index = popup.currentIndex()
+        if not index.isValid():
+            model = popup.model()
+            if model is None:
+                return False
+            index = model.index(0, 0)
+            if not index.isValid():
+                return False
+        self._insert_completion(index)
+        popup.hide()
+        return True
+
+    def _insert_completion(self, completion: object) -> None:
+        try:
+            if self._completer is None:
+                return
+            if (
+                hasattr(completion, "row")
+                and hasattr(completion, "column")
+                and hasattr(completion, "sibling")
+                and hasattr(completion, "data")
+            ):
+                # QModelIndex payload from popup: always read token from column 0.
+                completion_text = str(completion.sibling(completion.row(), 0).data() or "")
+            elif hasattr(completion, "data"):
+                completion_text = str(completion.data() or "")
+            else:
+                completion_text = str(completion)
+            if not completion_text:
+                return
+            prefix = self._completer.completionPrefix()
+            cursor = self.textCursor()
+            if prefix:
+                cursor.movePosition(
+                    QtGui.QTextCursor.MoveOperation.Left,
+                    QtGui.QTextCursor.MoveMode.KeepAnchor,
+                    len(prefix),
+                )
+            cursor.insertText(completion_text)
+            self.setTextCursor(cursor)
+        except Exception as exc:
+            self._log_nonfatal("insert_completion", exc)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        try:
+            if self._completer is not None and self._completer.popup().isVisible():
+                if event.key() in (
+                    QtCore.Qt.Key.Key_Return,
+                    QtCore.Qt.Key.Key_Enter,
+                    QtCore.Qt.Key.Key_Tab,
+                ):
+                    self._accept_current_completion()
+                    return
+                if event.key() in (QtCore.Qt.Key.Key_Backtab, QtCore.Qt.Key.Key_Escape):
+                    self._completer.popup().hide()
+                    return
+
+            ctrl_space = (
+                event.key() == QtCore.Qt.Key.Key_Space
+                and event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier
+            )
+            if ctrl_space:
+                self._show_completion_popup(force=True)
+                return
+
+            super().keyPressEvent(event)
+
+            if self._completer is None:
+                return
+
+            typed = event.text()
+            if typed and (typed[-1].isalnum() or typed[-1] == "_"):
+                self._show_completion_popup(force=False)
+                return
+            if event.key() == QtCore.Qt.Key.Key_Backspace:
+                self._show_completion_popup(force=False)
+                return
+            if self._completer.popup().isVisible():
+                self._completer.popup().hide()
+        except Exception as exc:
+            self._log_nonfatal("keyPressEvent", exc)
+            super().keyPressEvent(event)
+
+    def focusInEvent(self, event: QtGui.QFocusEvent) -> None:
+        try:
+            if self._completer is not None:
+                self._completer.setWidget(self)
+        except Exception as exc:
+            self._log_nonfatal("focusInEvent", exc)
+        super().focusInEvent(event)
 
 
 class TitleBar(QtWidgets.QWidget):
@@ -227,10 +521,18 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(200)
         self.timer.timeout.connect(self.step)
+        self._lint_timer = QtCore.QTimer(self)
+        self._lint_timer.setSingleShot(True)
+        self._lint_timer.setInterval(250)
+        self._lint_timer.timeout.connect(self._lint_source)
+        self._base_completion_entries: dict[str, str] = {}
 
         self._build_ui()
         self.update_register_view()
         self.update_memory_view()
+
+    def _log_nonfatal(self, context: str, exc: Exception) -> None:
+        print(f"[AssemblerWindow] {context}: {exc}")
 
     def _build_ui(self) -> None:
         self._apply_style()
@@ -311,6 +613,210 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.editor.setPalette(palette)
         self.reg_table.setFont(mono)
         self.mem_table.setFont(mono)
+        self._setup_editor_assist()
+
+    def _setup_editor_assist(self) -> None:
+        entries: dict[str, str] = {}
+        entries.update({mnem: "FUNCTION" for mnem in RR_OPCODES})
+        entries.update({mnem: "CONTROL" for mnem in GEN_OPCODES})
+        entries.update({mnem: "IMMEDIATE" for mnem in IMM_OPCODES})
+        entries.update({mnem: "JUMP" for mnem in JUMP_OPCODES})
+        entries.update({name: "REGISTER" for name in REG_NAMES})
+        self._base_completion_entries = entries
+        self.editor.set_completion_words(self._base_completion_entries)
+        self.editor.textChanged.connect(self._schedule_lint)
+        self._lint_source()
+
+    def _schedule_lint(self) -> None:
+        self._lint_timer.start()
+
+    @staticmethod
+    def _strip_comment(text: str) -> str:
+        earliest: int | None = None
+        for marker in ("//", ";", "#"):
+            idx = text.find(marker)
+            if idx != -1 and (earliest is None or idx < earliest):
+                earliest = idx
+        if earliest is None:
+            return text
+        return text[:earliest]
+
+    @staticmethod
+    def _first_non_space_span(text: str) -> tuple[int, int]:
+        match = re.search(r"\S+", text)
+        if not match:
+            return (0, 0)
+        return (match.start(), match.end() - match.start())
+
+    @staticmethod
+    def _find_token_span(text: str, token: str) -> tuple[int, int]:
+        if not token:
+            return AssemblerWindow._first_non_space_span(text)
+        match = re.search(rf"\b{re.escape(token)}\b", text, flags=re.IGNORECASE)
+        if match:
+            return (match.start(), match.end() - match.start())
+        idx = text.find(token)
+        if idx != -1:
+            return (idx, len(token))
+        return AssemblerWindow._first_non_space_span(text)
+
+    @staticmethod
+    def _is_register_token(token: str) -> bool:
+        token_u = token.strip().upper()
+        if not token_u:
+            return False
+        if token_u in {name.upper() for name in REG_NAMES}:
+            return True
+        if token_u.startswith("R") and token_u[1:].isdigit():
+            idx = int(token_u[1:])
+            return 0 <= idx < len(REG_NAMES)
+        return False
+
+    @staticmethod
+    def _parse_operands_from_line(line: str) -> list[str]:
+        return [part.strip() for part in line.split(",") if part.strip()]
+
+    def _lint_structure(
+        self, source: str
+    ) -> tuple[dict[int, str], dict[int, tuple[int, int]], set[str]]:
+        errors: dict[int, str] = {}
+        spans: dict[int, tuple[int, int]] = {}
+        label_names: set[str] = set()
+
+        lines = source.splitlines()
+        for line_no, raw in enumerate(lines, start=1):
+            line = self._strip_comment(raw).rstrip()
+            if not line.strip():
+                continue
+
+            working = line.strip()
+            while True:
+                colon = working.find(":")
+                if colon < 0:
+                    break
+                label = working[:colon].strip()
+                if not label:
+                    break
+                if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", label):
+                    errors[line_no] = f"Invalid label '{label}'"
+                    spans[line_no] = self._find_token_span(line, label)
+                    break
+                label_u = label.upper()
+                if label_u in label_names:
+                    errors[line_no] = f"Duplicate label '{label}'"
+                    spans[line_no] = self._find_token_span(line, label)
+                    break
+                label_names.add(label_u)
+                working = working[colon + 1 :].strip()
+                if not working:
+                    break
+            if line_no in errors:
+                continue
+            if not working:
+                continue
+
+            parts = working.split(None, 1)
+            mnem = parts[0].upper()
+            op_text = parts[1] if len(parts) > 1 else ""
+            operands = self._parse_operands_from_line(op_text)
+
+            if mnem in RR_OPCODES:
+                if len(operands) not in (1, 2):
+                    errors[line_no] = f"{mnem} expects 1 or 2 registers"
+                    spans[line_no] = self._find_token_span(line, mnem)
+                    continue
+                bad_reg = next((op for op in operands if not self._is_register_token(op)), None)
+                if bad_reg:
+                    errors[line_no] = f"Unknown register '{bad_reg}'"
+                    spans[line_no] = self._find_token_span(line, bad_reg)
+                    continue
+                continue
+
+            if mnem in GEN_OPCODES:
+                if operands:
+                    errors[line_no] = f"{mnem} expects no operands"
+                    spans[line_no] = self._find_token_span(line, operands[0])
+                continue
+
+            if mnem in IMM_OPCODES:
+                if len(operands) != 2:
+                    errors[line_no] = f"{mnem} expects register and immediate"
+                    spans[line_no] = self._find_token_span(line, mnem)
+                    continue
+                ra, imm = operands
+                if not self._is_register_token(ra):
+                    errors[line_no] = f"Unknown register '{ra}'"
+                    spans[line_no] = self._find_token_span(line, ra)
+                    continue
+                try:
+                    imm_val = parse_number(imm)
+                except Exception:
+                    errors[line_no] = f"Invalid immediate '{imm}'"
+                    spans[line_no] = self._find_token_span(line, imm)
+                    continue
+                if not (-128 <= imm_val <= 255):
+                    errors[line_no] = f"Immediate out of range for {mnem}: {imm_val}"
+                    spans[line_no] = self._find_token_span(line, imm)
+                continue
+
+            if mnem in JUMP_OPCODES:
+                if len(operands) != 1:
+                    errors[line_no] = f"{mnem} expects an immediate or label"
+                    spans[line_no] = self._find_token_span(line, mnem)
+                    continue
+                jump_arg = operands[0]
+                try:
+                    imm_val = parse_number(jump_arg)
+                    if not (-1024 <= imm_val <= 1023):
+                        errors[line_no] = f"Jump offset out of range: {imm_val}"
+                        spans[line_no] = self._find_token_span(line, jump_arg)
+                except Exception:
+                    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", jump_arg):
+                        errors[line_no] = f"Invalid immediate '{jump_arg}'"
+                        spans[line_no] = self._find_token_span(line, jump_arg)
+                continue
+
+            errors[line_no] = f"Unknown instruction '{mnem}'"
+            spans[line_no] = self._find_token_span(line, mnem)
+
+        return errors, spans, label_names
+
+    def _infer_span_from_asm_error(self, source: str, line_no: int, message: str) -> tuple[int, int]:
+        lines = source.splitlines()
+        if line_no <= 0 or line_no > len(lines):
+            return (0, 0)
+        line = lines[line_no - 1]
+        quoted = re.search(r"'([^']+)'", message)
+        if quoted:
+            return self._find_token_span(line, quoted.group(1))
+        return self._first_non_space_span(line)
+
+    def _lint_source(self) -> None:
+        source = self.editor.toPlainText()
+        if not source.strip():
+            self.editor.set_lint_errors({}, {})
+            return
+
+        try:
+            errors, spans, labels = self._lint_structure(source)
+            completion_entries = dict(self._base_completion_entries)
+            for label in labels:
+                if label not in completion_entries:
+                    completion_entries[label] = "LABEL"
+            self.editor.set_completion_words(completion_entries)
+            if errors:
+                self.editor.set_lint_errors(errors, spans)
+                return
+
+            assemble(source)
+            self.editor.set_lint_errors({}, {})
+        except AsmError as exc:
+            line_no = exc.line_no if exc.line_no is not None else 1
+            span = self._infer_span_from_asm_error(source, line_no, str(exc))
+            self.editor.set_lint_errors({line_no: str(exc)}, {line_no: span})
+        except Exception as exc:
+            self._log_nonfatal("lint_source", exc)
+            self.editor.set_lint_errors({}, {})
 
     def _build_toolbar(self) -> None:
         toolbar = QtWidgets.QToolBar("Main")
@@ -606,6 +1112,30 @@ Comments: // ; #
 
             QMenu { background: #031003; color: #80ffc6; border: 1px solid #0b7c49; }
             QMenu::item:selected { background: #0f3b1f; }
+            QTreeView#completionPopup {
+                background: rgba(3, 16, 3, 232);
+                color: #8dffd0;
+                border: 2px solid #18d77f;
+                border-radius: 0px;
+                outline: none;
+            }
+            QTreeView#completionPopup::item {
+                padding: 2px 6px;
+                border: none;
+            }
+            QTreeView#completionPopup::item:selected {
+                background: rgba(15, 76, 43, 220);
+                color: #e9fff5;
+            }
+            QHeaderView#completionPopupHeader::section {
+                background: rgba(7, 34, 18, 230);
+                color: #9dffd9;
+                border: 1px solid #0d8f54;
+                border-left: none;
+                border-top: none;
+                padding: 2px 6px;
+                font-size: 9pt;
+            }
             QToolTip { background: #031003; color: #bfffe0; border: 1px solid #0b7c49; }
             QDialog { background: #030a03; color: #80ffc6; border: 1px solid #0d8f54; }
 
@@ -785,10 +1315,18 @@ Comments: // ; #
         try:
             program = assemble(source)
         except AsmError as exc:
+            line_no = exc.line_no if exc.line_no is not None else 1
+            span = self._infer_span_from_asm_error(source, line_no, str(exc))
+            self.editor.set_lint_errors({line_no: str(exc)}, {line_no: span})
             self.statusBar().showMessage(str(exc), 5000)
             self.highlight_line(exc.line_no)
             return
+        except Exception as exc:
+            self._log_nonfatal("assemble_source", exc)
+            self.statusBar().showMessage(f"Internal error: {exc}", 5000)
+            return
 
+        self.editor.set_lint_errors({}, {})
         self.program = program
         self.addr_to_line = program.addr_to_line
         self.cpu.reset()
@@ -892,6 +1430,23 @@ Comments: // ; #
 
 
 def main() -> None:
+    def _global_excepthook(exc_type, exc_value, exc_tb) -> None:
+        msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        print(msg)
+        try:
+            with open("assembler_crash.log", "a", encoding="utf-8") as handle:
+                handle.write(msg)
+                handle.write("\n")
+        except Exception:
+            pass
+
+    sys.excepthook = _global_excepthook
+    try:
+        fh_stream = open("assembler_faulthandler.log", "a", encoding="utf-8")
+        faulthandler.enable(fh_stream)
+    except Exception:
+        pass
+
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon("assets/amb.ico"))
     app_palette = app.palette()
