@@ -7,6 +7,7 @@ import sys
 import textwrap
 import traceback
 import faulthandler
+from pathlib import Path
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
@@ -756,8 +757,10 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             operands = self._parse_operands_from_line(op_text)
 
             if mnem in RR_OPCODES:
-                if len(operands) not in (1, 2):
-                    errors[line_no] = f"{mnem} expects 1 or 2 registers"
+                unary_rr = {"NOT", "SHL", "SHR", "SAR"}
+                expected = 1 if mnem in unary_rr else 2
+                if len(operands) != expected:
+                    errors[line_no] = f"{mnem} expects {expected} register{'s' if expected == 2 else ''}"
                     spans[line_no] = self._find_token_span(line, mnem)
                     continue
                 bad_reg = next((op for op in operands if not self._is_register_token(op)), None)
@@ -947,14 +950,22 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             )
 
         rr_syntax = {mnem: f"{mnem} Ra, Rb" for mnem in RR_OPCODES}
+        rr_syntax.update(
+            {
+                "NOT": "NOT Ra",
+                "SHL": "SHL Ra",
+                "SHR": "SHR Ra",
+                "SAR": "SAR Ra",
+            }
+        )
         rr_notes = {
-            "NOT": "Ra = ~Ra (Rb ignored)",
+            "NOT": "Ra = ~Ra",
             "OR": "Ra = Ra | Rb",
             "AND": "Ra = Ra & Rb",
             "XOR": "Ra = Ra ^ Rb",
-            "SHL": "Ra = Ra << (Rb[4:0]); SHC = shift count",
-            "SHR": "Ra = Ra >> (Rb[4:0]); SHC = shift count",
-            "SAR": "Ra = arithmetic_shift_right(Ra, Rb[4:0]); SHC = shift count",
+            "SHL": "Ra = Ra << SHC",
+            "SHR": "Ra = Ra >> SHC",
+            "SAR": "Ra = arithmetic_shift_right(Ra, SHC)",
             "ADD": "Ra = Ra + Rb",
             "SUB": "Ra = Ra - Rb",
             "MOV": "Ra = Rb",
@@ -1633,7 +1644,9 @@ def main() -> None:
         pass
 
     app = QtWidgets.QApplication([])
-    app.setWindowIcon(QtGui.QIcon("assets/amb.ico"))
+    icon_path = Path(__file__).resolve().parents[2] / "assets" / "amb.ico"
+    icon = QtGui.QIcon(str(icon_path))
+    app.setWindowIcon(icon)
     app_palette = app.palette()
     green = QtGui.QColor("#00ff6a")
     for group in (
@@ -1644,5 +1657,6 @@ def main() -> None:
         app_palette.setColor(group, QtGui.QPalette.ColorRole.WindowText, green)
     app.setPalette(app_palette)
     window = AssemblerWindow()
+    window.setWindowIcon(icon)
     window.show()
     app.exec()
