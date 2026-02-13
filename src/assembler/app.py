@@ -128,10 +128,12 @@ class TitleBar(QtWidgets.QWidget):
     def __init__(self, parent: QtWidgets.QWidget) -> None:
         super().__init__(parent)
         self.setObjectName("titleBar")
+        self.setAutoFillBackground(True)
+        self.setFixedHeight(34)
         self._drag_pos: QtCore.QPoint | None = None
 
         layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(10, 5, 8, 5)
         layout.setSpacing(6)
 
         self.title_label = QtWidgets.QLabel(parent.windowTitle())
@@ -142,12 +144,21 @@ class TitleBar(QtWidgets.QWidget):
         layout.addWidget(self.title_label)
         layout.addStretch(1)
 
-        self.min_btn = QtWidgets.QPushButton("-")
+        self.min_btn = QtWidgets.QPushButton("MIN")
         self.min_btn.setObjectName("titleButton")
         self.max_btn = QtWidgets.QPushButton("MAX")
         self.max_btn.setObjectName("titleButton")
         self.close_btn = QtWidgets.QPushButton("X")
         self.close_btn.setObjectName("titleClose")
+
+        for btn, min_w in (
+            (self.min_btn, 40),
+            (self.max_btn, 40),
+            (self.close_btn, 30),
+        ):
+            btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            btn.setMinimumWidth(min_w)
+            btn.setFixedHeight(22)
 
         self.min_btn.clicked.connect(lambda: self.window().showMinimized())
         self.max_btn.clicked.connect(self._toggle_max_restore)
@@ -228,6 +239,8 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self._build_help_dock()
 
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(3)
 
         self.editor = CodeEditor()
         self.editor.setTabStopDistance(4 * QtGui.QFontMetrics(self.editor.font()).horizontalAdvance(" "))
@@ -301,7 +314,10 @@ class AssemblerWindow(QtWidgets.QMainWindow):
 
     def _build_toolbar(self) -> None:
         toolbar = QtWidgets.QToolBar("Main")
+        toolbar.setObjectName("mainToolbar")
         toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.addToolBar(toolbar)
 
         def add_action(label: str, slot) -> None:
@@ -328,6 +344,8 @@ class AssemblerWindow(QtWidgets.QMainWindow):
 
     def _build_help_dock(self) -> None:
         self.help_dock = QtWidgets.QDockWidget("AMB Assembly Help", self)
+        self.help_dock.setObjectName("helpDock")
+        self.help_dock.setMinimumWidth(380)
         self.help_dock.setAllowedAreas(
             QtCore.Qt.DockWidgetArea.LeftDockWidgetArea
             | QtCore.Qt.DockWidgetArea.RightDockWidgetArea
@@ -349,7 +367,11 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         layout.addWidget(title)
 
         browser = QtWidgets.QTextBrowser()
+        browser.setObjectName("helpBrowser")
         browser.setOpenExternalLinks(False)
+        browser.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.WidgetWidth)
+        browser.setWordWrapMode(QtGui.QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        browser.document().setDocumentMargin(8)
         browser.setHtml(self._build_help_html())
         layout.addWidget(browser, 1)
 
@@ -361,14 +383,19 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         def build_table(rows: list[tuple[str, str, str]]) -> str:
             body = "\n".join(
                 "<tr>"
-                f"<td style='border: 1px solid #0a3; padding: 4px 6px;'>{mnem}</td>"
-                f"<td style='border: 1px solid #0a3; padding: 4px 6px;'><code>{syntax}</code></td>"
-                f"<td style='border: 1px solid #0a3; padding: 4px 6px;'>{note}</td>"
+                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'>{mnem}</td>"
+                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'><code style='white-space: normal; overflow-wrap: anywhere;'>{syntax}</code></td>"
+                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'>{note}</td>"
                 "</tr>"
                 for mnem, syntax, note in rows
             )
             return (
-                "<table style='width: 100%; border-collapse: collapse; border: 1px solid #0a3;'>"
+                "<table style='width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid #0a3; margin: 4px 0 10px 0;'>"
+                "<colgroup>"
+                "<col style='width: 16%;'>"
+                "<col style='width: 26%;'>"
+                "<col style='width: 58%;'>"
+                "</colgroup>"
                 "<tr>"
                 "<th style='border: 1px solid #0a3; background: #041; color: #7CFFAA; padding: 4px 6px;'>Mnemonic</th>"
                 "<th style='border: 1px solid #0a3; background: #041; color: #7CFFAA; padding: 4px 6px;'>Syntax</th>"
@@ -431,7 +458,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
 
         return textwrap.dedent(
             f"""
-        <div style="font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px;">
+        <div style="font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; line-height: 1.35;">
         <h3>Instruction Set Reference</h3>
         <ul>
             <li>Instruction width: 15 bits (stored in 2 bytes, 1 unused bit)</li>
@@ -444,12 +471,12 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         <p>Special: IC, SP, LC, SHC, JMPOFF, MEMOFF, CMPA, CMPB.</p>
         <p>Full register list (case-insensitive): {reg_names}</p>
         <h4>Encoding Forms</h4>
-        <pre>
+        <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
 RR:  opcode7 | Ra | Rb
 GEN: opcode7 only
 IMM: opcode3 | Ra | imm8
 JMP: opcode4 | imm11
-        </pre>
+        </div>
         <h4>Register-to-Register (RR)</h4>
         <p>Format: <code>MNEMONIC Ra, Rb</code>. If only one register is provided, the assembler uses <code>Rb = Ra</code>.</p>
         {build_table(rr_rows)}
@@ -463,12 +490,12 @@ JMP: opcode4 | imm11
         <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>.</p>
         {build_table(jump_rows)}
         <h4>Labels & Comments</h4>
-        <pre>
+        <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
 label: ADD R0, R1
        JMP label
 
 Comments: // ; #
-        </pre>
+        </div>
         </div>
         """
         ).strip()
@@ -487,81 +514,110 @@ Comments: // ; #
     def _apply_style(self) -> None:
         self.setStyleSheet(
             """
-            QMainWindow { background: #050805; color: #00ff6a; border: 1px solid #0a3; }
-            QWidget { color: #00ff6a; }
+            QMainWindow { background: #030a03; color: #7affbf; border: 1px solid #0d8f54; }
+            QWidget { color: #68ffb3; background: transparent; }
             QPlainTextEdit, QTableWidget, QLineEdit, QSpinBox, QComboBox, QTreeView, QTextBrowser {
-                background: #020b02; color: #00ff6a; border: 1px solid #0a3;
+                background: #031003; color: #80ffc6; border: 1px solid #0b7c49;
             }
-            QPlainTextEdit:focus, QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-                border: 1px solid #7CFFAA;
+            QPlainTextEdit:focus, QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTextBrowser:focus {
+                border: 1px solid #26d684;
             }
             QPlainTextEdit {
-                selection-background-color: #0b2b0b;
-                selection-color: #7CFFAA;
+                selection-background-color: #0f3b1f;
+                selection-color: #c8ffe5;
             }
-            QTableWidget::item { background: #020b02; color: #00ff6a; }
-            QTableWidget::item:selected { background: #0b2b0b; color: #7CFFAA; }
-            QTableCornerButton::section { background: #041; border: 1px solid #0a3; }
+            QTableWidget { gridline-color: #0b7c49; }
+            QTableWidget::item { background: #031003; color: #80ffc6; }
+            QTableWidget::item:selected { background: #104528; color: #d6ffec; }
+            QTableCornerButton::section { background: #0a3520; border: 1px solid #0b7c49; }
             QHeaderView::section {
-                background: #041; color: #7CFFAA; border: 1px solid #0a3; padding: 4px;
+                background: #0a3520; color: #bfffe0; border: 1px solid #0b7c49; padding: 5px 6px;
             }
-            #titleBar { background: #00ff6a; border-bottom: 1px solid #0a3; }
-            #titleLabel { color: #001; font-weight: 700; }
+
+            QLabel { color: #9effd3; font-weight: 600; padding: 1px 0; }
+
+            QPushButton, QToolButton {
+                background: #06210d; color: #77ffc1; border: 1px solid #0d8f54; padding: 4px 10px; margin: 0;
+            }
+            QPushButton:hover, QToolButton:hover { background: #0d3a21; }
+            QPushButton:pressed, QToolButton:pressed { background: #0f4c2b; color: #d7ffee; }
+            QPushButton:disabled, QToolButton:disabled {
+                color: #2f7f58; border-color: #1f5b3d; background: #041108;
+            }
+
+            QToolBar#mainToolbar {
+                background: #041508; border-top: 1px solid #0d8f54; border-bottom: 1px solid #0d8f54;
+                spacing: 2px; padding: 4px 6px;
+            }
+            QToolBar#mainToolbar QToolButton {
+                min-height: 24px; padding: 4px 10px;
+            }
+            QToolBar#mainToolbar::separator { background: #0d8f54; width: 1px; margin: 2px 8px; }
+
+            QWidget#titleBar { background: #041909; border-bottom: 1px solid #0d8f54; }
+            QLabel#titleLabel { color: #c9ffe5; font-weight: 700; letter-spacing: 0.5px; }
             QPushButton#titleButton {
-                background: #00ff6a; color: #001; border: 1px solid #0a3; padding: 2px 8px;
+                background: #06250f; color: #92ffcd; border: 1px solid #0d8f54; padding: 1px 8px;
             }
-            QPushButton#titleButton:hover { background: #7CFFAA; }
+            QPushButton#titleButton:hover { background: #0f3f24; }
             QPushButton#titleClose {
-                background: #00ff6a; color: #001; border: 1px solid #0a3; padding: 2px 8px;
+                background: #2a0f14; color: #ffbdca; border: 1px solid #8f2f40; padding: 1px 8px;
             }
-            QPushButton#titleClose:hover { background: #0a3; color: #001; }
-            QLabel { color: #7CFFAA; font-weight: 600; }
-            QPushButton {
-                background: #020b02; color: #00ff6a; border: 1px solid #0a3; padding: 4px 10px;
-            }
-            QPushButton:hover { background: #033; }
-            QPushButton:pressed { background: #0a3; color: #001; }
-            QToolBar { background: #020b02; border-bottom: 1px solid #0a3; }
-            QToolButton {
-                background: #020b02; color: #00ff6a; padding: 4px 8px; border: 1px solid #0a3;
-            }
-            QToolButton:hover { background: #033; }
-            QToolBar::separator { background: #0a3; width: 1px; margin: 4px; }
-            QSplitter::handle { background: #0a3; }
-            QMainWindow::separator { background: #0a3; width: 6px; height: 6px; }
+            QPushButton#titleClose:hover { background: #561825; color: #ffe0e6; }
+
+            QSplitter::handle:horizontal { background: #0d8f54; width: 3px; margin: 0 1px; }
+            QSplitter::handle:vertical { background: #0d8f54; height: 3px; margin: 1px 0; }
+            QMainWindow::separator { background: #0d8f54; width: 3px; height: 3px; }
+
             QScrollBar:vertical, QScrollBar:horizontal {
-                background: transparent; border: none; margin: 0px; width: 6px; height: 6px;
+                background: #021002; border: 1px solid #0b7c49; margin: 0px; width: 10px; height: 10px;
             }
             QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
-                background: #00ff6a; border-radius: 6px; min-width: 6px; min-height: 16px;
+                background: #1ce08c; border-radius: 5px; min-width: 8px; min-height: 20px;
             }
-            QScrollBar::add-line, QScrollBar::sub-line { background: #020b02; border: none; }
-            QScrollBar::add-page, QScrollBar::sub-page { background: #020b02; }
-            QStatusBar { background: #020b02; color: #00ff6a; }
-            QStatusBar::item { border: 1px solid #0a3; }
-            QSizeGrip { background: #020b02; border: 1px solid #0a3; }
-            #lineNumberArea { background: #020b02; border-right: 1px solid #0a3; }
+            QScrollBar::add-line, QScrollBar::sub-line { background: transparent; border: none; height: 0px; width: 0px; }
+            QScrollBar::add-page, QScrollBar::sub-page { background: #021002; }
+
+            QStatusBar { background: #041508; color: #7affbf; border-top: 1px solid #0d8f54; }
+            QStatusBar::item { border: 1px solid #0b7c49; }
+            QSizeGrip { background: #041508; border: 1px solid #0b7c49; }
+            #lineNumberArea { background: #041508; border-right: 1px solid #0b7c49; }
+
+            QLineEdit, QSpinBox { min-height: 22px; padding: 0 6px; }
             QSpinBox::up-button, QSpinBox::down-button {
-                subcontrol-origin: border; width: 16px; background: #020b02; border: 1px solid #0a3;
+                subcontrol-origin: padding; width: 14px; background: #041909; border-left: 1px solid #0b7c49;
             }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #033; }
-            QSpinBox::up-arrow, QSpinBox::down-arrow { width: 7px; height: 7px; }
-            QSpinBox::up-arrow { image: none; border-left: 3px solid transparent; border-right: 3px solid transparent; border-bottom: 5px solid #00ff6a; }
-            QSpinBox::down-arrow { image: none; border-left: 3px solid transparent; border-right: 3px solid transparent; border-top: 5px solid #00ff6a; }
-            QComboBox::drop-down { border: 1px solid #0a3; background: #020b02; }
-            QComboBox::down-arrow { image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid #00ff6a; }
-            QMenu { background: #020b02; color: #00ff6a; border: 1px solid #0a3; }
-            QMenu::item:selected { background: #0b2b0b; }
-            QToolTip { background: #020b02; color: #7CFFAA; border: 1px solid #0a3; }
-            QDialog { background: #050805; color: #00ff6a; border: 1px solid #0a3; }
-            QDockWidget { background: #050805; color: #00ff6a; border: 1px solid #0a3; }
-            QDockWidget::title {
-                background: #020b02; border-bottom: 1px solid #0a3; padding: 6px;
+            QSpinBox::up-button { border-bottom: 1px solid #0b7c49; }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #0d3a21; }
+            QSpinBox::up-arrow, QSpinBox::down-arrow { image: none; width: 0px; height: 0px; }
+            QSpinBox::up-arrow {
+                border-left: 4px solid transparent; border-right: 4px solid transparent;
+                border-bottom: 6px solid #8affcb; margin-top: 1px;
             }
-            QDockWidget::close-button, QDockWidget::float-button {
-                border: 1px solid #0a3; background: #020b02; width: 14px; height: 14px;
+            QSpinBox::down-arrow {
+                border-left: 4px solid transparent; border-right: 4px solid transparent;
+                border-top: 6px solid #8affcb; margin-bottom: 1px;
             }
-            QDockWidget::close-button:hover, QDockWidget::float-button:hover { background: #033; }
+            QComboBox::drop-down { border: 1px solid #0b7c49; background: #041909; }
+            QComboBox::down-arrow {
+                image: none; border-left: 4px solid transparent; border-right: 4px solid transparent;
+                border-top: 6px solid #8affcb;
+            }
+
+            QMenu { background: #031003; color: #80ffc6; border: 1px solid #0b7c49; }
+            QMenu::item:selected { background: #0f3b1f; }
+            QToolTip { background: #031003; color: #bfffe0; border: 1px solid #0b7c49; }
+            QDialog { background: #030a03; color: #80ffc6; border: 1px solid #0d8f54; }
+
+            QDockWidget#helpDock { background: #030a03; color: #80ffc6; border: 1px solid #0b7c49; }
+            QDockWidget#helpDock::title {
+                background: #06210d; border-bottom: 1px solid #0d8f54; color: #bfffe0; padding: 7px 8px;
+            }
+            QDockWidget#helpDock::close-button, QDockWidget#helpDock::float-button {
+                border: 1px solid #0b7c49; background: #041909; width: 14px; height: 14px;
+            }
+            QDockWidget#helpDock::close-button:hover, QDockWidget#helpDock::float-button:hover { background: #0d3a21; }
+            QTextBrowser#helpBrowser { background: #021002; color: #8dffd0; }
             """
         )
 
