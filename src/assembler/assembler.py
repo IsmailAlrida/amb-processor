@@ -171,14 +171,16 @@ def assemble(source: str) -> Program:
         line_no = inst.line_no
 
         if mnem in RR_OPCODES:
-            if len(ops) == 1:
+            if mnem in {"NOT", "SHL", "SHR", "SAR"}:
+                if len(ops) != 1:
+                    raise AsmError(f"{mnem} expects 1 register", line_no)
                 ra = parse_register(ops[0], line_no)
                 rb = ra
-            elif len(ops) == 2:
+            else:
+                if len(ops) != 2:
+                    raise AsmError(f"{mnem} expects 2 registers", line_no)
                 ra = parse_register(ops[0], line_no)
                 rb = parse_register(ops[1], line_no)
-            else:
-                raise AsmError(f"{mnem} expects 1 or 2 registers", line_no)
             inst.encoded = encode_rr(RR_OPCODES[mnem], ra, rb)
             continue
 

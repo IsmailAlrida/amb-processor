@@ -6,7 +6,7 @@ the first one R0 - R7 are general purpose and can be used by the user in any ope
 IC is the instruction counter register the holds the value of the next instruction to be executed. after an instruction is done its value will be increased by two each time.
 SP is the stack pointer : it will be used with stack operations if needed in the future.
 LC is the loop counter : it hold the value for number of loop when used with jumps functions
-SHC is the shift counter : it holds the amount of bits shifted during any shift operation\
+SHC is the shift counter : it holds the amount of bits to be shifted during shift operations (SHL, SHR, SAR).
 JMPOFF : holds the jmp offset value that will be added to the jmp function immediate during long jump operations
 MEMOFF : holds the memory offset value that will be added to the load and store functions immediate.
 
@@ -16,21 +16,32 @@ CMPA and CMPB are used in the branching instructions JPBLW and JPEQ where CMPA i
 # Register to Register operations 
 
 The opcode is define by MSbits as 001 the remaining bits define the function.
- Ra is the destination and Rb is the source.
- The result will be written in the destination and override its value and the source will remain the same.
+Ra is the destination and Rb is the source for binary operations.
+The result will be written in the destination and override its value and the source will remain the same.
 
 7 bits of opcode , 4 bits of register a select and 4 bits of register b select 
 
-NOT [R]           |    001 0000
-OR [R] , [R]      |    001 0001
+NOT [R]         |    001 0000
+OR [R] , [R]    |    001 0001
 AND [R] , [R]   |    001 0010
-XOR [R] , [R]    |    001 0011
-SHL [R] , [R]     |    001 0100
-SHR [R] , [R]    |    001 0101
-SAR [R] , [R]    |    001 0110
+XOR [R] , [R]   |    001 0011
+SHL [R]         |    001 0100
+SHR [R]         |    001 0101
+SAR [R]         |    001 0110
 ADD [R] , [R]   |    001 0111
-SUB [R] , [R]    |    001 1000
-MOV [R] , [R]   |   001 1001
+SUB [R] , [R]   |    001 1000
+MOV [R] , [R]   |    001 1001
+
+### Shift operation behavior (no ambiguity)
+
+- SHL, SHR, and SAR use one register operand only (the destination register).
+- The shift amount is read from SHC.
+- The encoded Rb field is ignored for SHL/SHR/SAR.
+- Example: `LIL SHC, 4` then `SHL R0` shifts `R0` by 4 bits.
+- For shift amounts greater than or equal to register width (28 bits):
+  - SHL result is 0
+  - SHR result is 0
+  - SAR result is sign-filled (all 1s for negative, all 0s for positive)
 
 # General operations 
 

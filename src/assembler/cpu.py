@@ -18,6 +18,7 @@ from .isa import (
     REG_NAMES,
     REG_SHC,
     RR_OPCODES,
+    WORD_BITS,
     WORD_MASK,
     sign_extend,
 )
@@ -188,18 +189,24 @@ class CPU:
         elif op7 == RR_OPCODES["XOR"]:
             self.registers[ra] = (a_val ^ b_val) & WORD_MASK
         elif op7 == RR_OPCODES["SHL"]:
-            shift = b_val & 0x1F
-            self.registers[REG_SHC] = shift
-            self.registers[ra] = (a_val << shift) & WORD_MASK
+            shift = self.registers[REG_SHC] & WORD_MASK
+            if shift >= WORD_BITS:
+                self.registers[ra] = 0
+            else:
+                self.registers[ra] = (a_val << shift) & WORD_MASK
         elif op7 == RR_OPCODES["SHR"]:
-            shift = b_val & 0x1F
-            self.registers[REG_SHC] = shift
-            self.registers[ra] = (a_val >> shift) & WORD_MASK
+            shift = self.registers[REG_SHC] & WORD_MASK
+            if shift >= WORD_BITS:
+                self.registers[ra] = 0
+            else:
+                self.registers[ra] = (a_val >> shift) & WORD_MASK
         elif op7 == RR_OPCODES["SAR"]:
-            shift = b_val & 0x1F
-            self.registers[REG_SHC] = shift
+            shift = self.registers[REG_SHC] & WORD_MASK
             signed = sign_extend(a_val, 28)
-            self.registers[ra] = (signed >> shift) & WORD_MASK
+            if shift >= WORD_BITS:
+                self.registers[ra] = WORD_MASK if signed < 0 else 0
+            else:
+                self.registers[ra] = (signed >> shift) & WORD_MASK
         elif op7 == RR_OPCODES["ADD"]:
             self.registers[ra] = (a_val + b_val) & WORD_MASK
         elif op7 == RR_OPCODES["SUB"]:
