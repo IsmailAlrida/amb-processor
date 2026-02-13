@@ -28,8 +28,8 @@ REG_NAMES = [
     "SHC",
     "JMPOFF",
     "MEMOFF",
-    "R14",
-    "R15",
+    "CMPA",
+    "CMPB",
 ]
 
 REG_ALIASES = {
@@ -39,6 +39,8 @@ REG_ALIASES = {
     "SHC": 11,
     "JMPOFF": 12,
     "MEMOFF": 13,
+    "CMPA": 14,
+    "CMPB": 15,
 }
 
 REG_IC = 8
@@ -47,6 +49,8 @@ REG_LC = 10
 REG_SHC = 11
 REG_JMPOFF = 12
 REG_MEMOFF = 13
+REG_CMPA = 14
+REG_CMPB = 15
 
 RR_OPCODES = {
     "NOT": 0b0010000,
@@ -74,8 +78,8 @@ JUMP_OPCODES = {
 }
 
 IMM_OPCODES = {
-    "LI": 0b100,
-    "LIHI": 0b101,
+    "LIL": 0b100,
+    "LIH": 0b101,
     "LOAD": 0b110,
     "STOR": 0b111,
 }

@@ -9,6 +9,8 @@ from .isa import (
     ADDR_MASK,
     GEN_OPCODES,
     IMM_OPCODES,
+    REG_CMPA,
+    REG_CMPB,
     JUMP_OPCODES,
     REG_IC,
     REG_JMPOFF,
@@ -114,9 +116,9 @@ class CPU:
             op3_val = op3
             ra = (instr >> 8) & 0xF
             imm8 = instr & 0xFF
-            if op3_val == IMM_OPCODES["LI"]:
+            if op3_val == IMM_OPCODES["LIL"]:
                 self.registers[ra] = (self.registers[ra] & ~0xFF) | imm8
-            elif op3_val == IMM_OPCODES["LIHI"]:
+            elif op3_val == IMM_OPCODES["LIH"]:
                 self.registers[ra] = (self.registers[ra] & ~(0xFF << 8)) | (imm8 << 8)
             elif op3_val == IMM_OPCODES["LOAD"]:
                 addr = (imm8 + self.registers[REG_MEMOFF]) & ADDR_MASK
@@ -148,12 +150,12 @@ class CPU:
             elif op4 == JUMP_OPCODES["JMPL"]:
                 do_jump(True)
             elif op4 == JUMP_OPCODES["JPEQ"]:
-                # Assumption for demo: compare R0 and R1.
-                if self.registers[0] == self.registers[1]:
+                if self.registers[REG_CMPA] == self.registers[REG_CMPB]:
                     do_jump(True)
             elif op4 == JUMP_OPCODES["JPBLW"]:
-                # Assumption for demo: compare R0 < R1 (unsigned).
-                if (self.registers[0] & WORD_MASK) < (self.registers[1] & WORD_MASK):
+                if (self.registers[REG_CMPA] & WORD_MASK) < (
+                    self.registers[REG_CMPB] & WORD_MASK
+                ):
                     do_jump(True)
             else:
                 return ExecResult(ic=ic, halted=False, message="Unknown jump opcode")

@@ -10,7 +10,7 @@ SHC is the shift counter : it holds the amount of bits shifted during any shift 
 JMPOFF : holds the jmp offset value that will be added to the jmp function immediate during long jump operations
 MEMOFF : holds the memory offset value that will be added to the load and store functions immediate.
 
-the last two register are left for future addtions.
+CMPA and CMPB are used in the branching instructions JPBLW and JPEQ where CMPA is the first item in the inequality and CMPB is the second item. 
 
 
 # Register to Register operations 
@@ -57,7 +57,7 @@ in hardware first the immediate value is shifted by 1 bit and then added to the 
 
 ## JPEQ [imm] (0110 ) and JPBLW [imm] (0111)
 
-works similar to the long jmp but only happen with the condition is met wither it being equal or below. using any of them with the jump function and code manipulations can give the opposite conditions such as Jump not equal or jump above
+works similar to the long jmp but only happen with the condition is met wither it being equal or below **(the instruction can only be used with CMPA and CMPB registers to do comparison. if you want to compare to items the values must be moved to them where CMPA is the first item and CMPB is the second item)**. using any of them with the jump function and code manipulations can give the opposite conditions such as Jump not equal or jump above
 
 ## Immediate operations 
 
@@ -65,11 +65,11 @@ it has only 4 functions and defined with the MSB of the opcode as 1
 3 bits of opcode , 4 bits of register select and the 8 bits for the immediate.
 we choose the immediate value to be 8 to be compatible with the memory being byte addressable
 
-## LI [R] , [imm] (100)
+## LIL [R] , [imm] (100)
 
 this function loads the immediate value into the first bits of the register (7 - 0) 
 
-## LIHI [R] , [imm] (101)
+## LIH [R] , [imm] (101)
 
 this function loads the immediate value into the second lowest 8 bits of the register (15 - 8) 
 

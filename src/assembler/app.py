@@ -142,7 +142,7 @@ class TitleBar(QtWidgets.QWidget):
         layout.addWidget(self.title_label)
         layout.addStretch(1)
 
-        self.min_btn = QtWidgets.QPushButton("MIN")
+        self.min_btn = QtWidgets.QPushButton("-")
         self.min_btn.setObjectName("titleButton")
         self.max_btn = QtWidgets.QPushButton("MAX")
         self.max_btn.setObjectName("titleButton")
@@ -399,14 +399,14 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         gen_rows = [(mnem, mnem, gen_notes.get(mnem, "No operands")) for mnem in GEN_OPCODES]
 
         imm_syntax = {
-            "LI": "LI Ra, imm8",
-            "LIHI": "LIHI Ra, imm8",
+            "LIL": "LIL Ra, imm8",
+            "LIH": "LIH Ra, imm8",
             "LOAD": "LOAD Ra, imm8",
             "STOR": "STOR Ra, imm8",
         }
         imm_notes = {
-            "LI": "Set bits 7..0 of Ra to imm8",
-            "LIHI": "Set bits 15..8 of Ra to imm8",
+            "LIL": "Set bits 7..0 of Ra to imm8",
+            "LIH": "Set bits 15..8 of Ra to imm8",
             "LOAD": "Ra = MEM[imm8 + MEMOFF] (28-bit word)",
             "STOR": "MEM[imm8 + MEMOFF] = Ra (28-bit word)",
         }
@@ -419,8 +419,8 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         jump_notes = {
             "JMP": "PC += (imm11 << 1)",
             "JMPL": "PC += (imm11 << 1) + JMPOFF",
-            "JPEQ": "If R0 == R1, PC += (imm11 << 1) + JMPOFF",
-            "JPBLW": "If R0 < R1 (unsigned), PC += (imm11 << 1) + JMPOFF",
+            "JPEQ": "If CMPA == CMPB, PC += (imm11 << 1) + JMPOFF",
+            "JPBLW": "If CMPA < CMPB (unsigned), PC += (imm11 << 1) + JMPOFF",
         }
         jump_rows = [
             (mnem, jump_syntax.get(mnem, mnem), jump_notes.get(mnem, ""))
@@ -440,7 +440,9 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             <li>PC/IC increments by 2 after each instruction fetch</li>
         </ul>
         <h4>Registers</h4>
-        <p>General: R0-R7. Full register list (case-insensitive): {reg_names}</p>
+        <p>General: R0-R7.</p>
+        <p>Special: IC, SP, LC, SHC, JMPOFF, MEMOFF, CMPA, CMPB.</p>
+        <p>Full register list (case-insensitive): {reg_names}</p>
         <h4>Encoding Forms</h4>
         <pre>
 RR:  opcode7 | Ra | Rb
@@ -458,6 +460,7 @@ JMP: opcode4 | imm11
         {build_table(imm_rows)}
         <h4>Jump (JMP)</h4>
         <p><code>imm11</code> accepts -1024..1023 (word offset). Labels are allowed and resolve to a PC-relative offset; labels must be 2-byte aligned.</p>
+        <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>.</p>
         {build_table(jump_rows)}
         <h4>Labels & Comments</h4>
         <pre>
