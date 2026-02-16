@@ -24,6 +24,121 @@ from .isa import (
     WORD_MASK,
 )
 
+SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
+    # Add new samples here as: ("Sample Name", """assembly code""")
+    (
+        "Counter Loop",
+        """\
+        // Count down from 5 to 0 and halt.
+        LIL R0, 5
+        LIL R1, 1
+
+        loop:
+        SUB R0, R1
+        MOV CMPA, R0
+        MOV CMPB, R1
+        JPBLW done
+        JMP loop
+
+        done:
+        HLT
+        """,
+    ),
+    (
+        "Shift + Store",
+        """\
+        // Build a value, shift it, and store to memory.
+        LIL R0, 10
+        LIL SHC, 2
+        SHL R0
+        STOR R0, 32
+        LOAD R2, 32
+        HLT
+        """,
+    ),
+    (
+        "Bitwise Demo",
+        """\
+        // Basic boolean ops.
+        LIL R0, 15
+        LIL R1, 9
+        AND R0, R1
+        XOR R1, R0
+        OR R0, R1
+        HLT
+        """,
+    ),
+    (
+        "Addition Chain",
+        """\
+        // Build R0 = 1 + 2 + 3.
+        LIL R0, 1
+        LIL R1, 2
+        LIL R2, 3
+        ADD R0, R1
+        ADD R0, R2
+        HLT
+        """,
+    ),
+    (
+        "Shift Register",
+        """\
+        // Demonstrate left/right shifts and SHC usage.
+        LIL R0, 12
+        LIL SHC, 1
+        MOV R1, R0
+        SHL R1
+        SHR R1
+        SAR R1
+        HLT
+        """,
+    ),
+    (
+        "Loop Until Zero",
+        """\
+        // Repeatedly decrement R0 until it drops below 1.
+        LIL R0, 6
+        LIL R1, 1
+
+        check:
+        MOV CMPA, R0
+        MOV CMPB, R1
+        JPBLW done
+        SUB R0, R1
+        JMP check
+
+        done:
+        HLT
+        """,
+    ),
+    (
+        "Store 16-bit Value",
+        """\
+        // Compose a 16-bit literal into R0 using low/high immediate ops.
+        LIL R0, 0x34
+        LIH R0, 0x12
+        MOV R1, R0
+        HLT
+        """,
+    ),
+    (
+        "Store a 28-bit Immediate",
+    """\
+        // Store a full 28-bit number in the register R0 = 0xE2FABCD
+        LIL R0, 0x2F
+        LIH R0, 0xFE
+        LIL SHC, 16
+        LIL R0, 0xCD
+        LIH R0, 0xAB
+    """
+    )
+]
+
+SAMPLE_CODES: dict[str, str] = {
+    name: textwrap.dedent(source).strip() + "\n"
+    for name, source in SAMPLE_CODE_DEFINITIONS
+}
+
 
 class LineNumberArea(QtWidgets.QWidget):
     def __init__(self, editor: "CodeEditor") -> None:
@@ -42,6 +157,9 @@ class LintHighlighter(QtGui.QSyntaxHighlighter):
     def __init__(self, document: QtGui.QTextDocument) -> None:
         super().__init__(document)
         self._error_spans: dict[int, tuple[int, int]] = {}
+        self._comment_markers = ("//", ";", "#")
+        self._comment_format = QtGui.QTextCharFormat()
+        self._comment_format.setForeground(QtGui.QColor("#6b6b6b"))
         self._error_format = QtGui.QTextCharFormat()
         self._error_format.setUnderlineStyle(
             QtGui.QTextCharFormat.UnderlineStyle.WaveUnderline
@@ -53,6 +171,14 @@ class LintHighlighter(QtGui.QSyntaxHighlighter):
         self.rehighlight()
 
     def highlightBlock(self, text: str) -> None:
+        comment_start: int | None = None
+        for marker in self._comment_markers:
+            idx = text.find(marker)
+            if idx != -1 and (comment_start is None or idx < comment_start):
+                comment_start = idx
+        if comment_start is not None:
+            self.setFormat(comment_start, len(text) - comment_start, self._comment_format)
+
         line_no = self.currentBlock().blockNumber() + 1
         span = self._error_spans.get(line_no)
         if span is None:
@@ -884,7 +1010,27 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         add_action("Open", self.open_file)
         add_action("Save", self.save_file)
         add_action("Save As", self.save_file_as)
+
         toolbar.addSeparator()
+        # sample_label = QtWidgets.QLabel("Samples")
+        # sample_label.setObjectName("sampleCodesLabel")
+        # sample_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignVCenter)
+        # toolbar.addWidget(sample_label)
+
+        self.sample_codes_combo = QtWidgets.QComboBox(self)
+        self.sample_codes_combo.setObjectName("sampleCodesCombo")
+        self.sample_codes_combo.setMinimumWidth(170)
+        self.sample_codes_combo.setMaxVisibleItems(12)
+        self.sample_codes_combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContentsOnFirstShow
+        )
+        self.sample_codes_combo.addItem(" Sample Code")
+        for sample_name in SAMPLE_CODES:
+            self.sample_codes_combo.addItem(sample_name)
+        self.sample_codes_combo.activated.connect(self.load_sample_code)
+        toolbar.addWidget(self.sample_codes_combo)
+        toolbar.addSeparator()
+
         add_action("Assemble", self.assemble_source)
         add_action("Step", self.step)
         add_action("Run", self.run)
@@ -1066,10 +1212,12 @@ Comments: // ; #
 
     def _wrap_panel(self, title: str, widget: QtWidgets.QWidget) -> QtWidgets.QWidget:
         panel = QtWidgets.QWidget()
+        panel.setObjectName("panelBox")
         layout = QtWidgets.QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(6)
         label = QtWidgets.QLabel(title)
+        label.setObjectName("panelTitle")
         label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(label)
         layout.addWidget(widget)
@@ -1080,10 +1228,20 @@ Comments: // ; #
             """
             QMainWindow { background: #030a03; color: #7affbf; border: 1px solid #0d8f54; }
             QWidget { color: #68ffb3; background: transparent; }
-            QPlainTextEdit, QTableWidget, QLineEdit, QSpinBox, QComboBox, QTreeView, QTextBrowser {
+            QWidget#panelBox {
+                background: #021002;
+                border: 2px solid #23ee95;
+            }
+            QLabel#panelTitle {
+                color: #d8ffef;
+                font-weight: 700;
+                padding: 0 0 4px 0;
+                border-bottom: 1px solid #1bc67a;
+            }
+            QPlainTextEdit, QTableWidget, QLineEdit, QComboBox, QTreeView, QTextBrowser {
                 background: #031003; color: #80ffc6; border: 1px solid #0b7c49;
             }
-            QPlainTextEdit:focus, QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTextBrowser:focus {
+            QPlainTextEdit:focus, QLineEdit:focus, QComboBox:focus, QTextBrowser:focus {
                 border: 1px solid #26d684;
             }
             QPlainTextEdit {
@@ -1104,19 +1262,57 @@ Comments: // ; #
                 background: #06210d; color: #77ffc1; border: 1px solid #0d8f54; padding: 4px 10px; margin: 0;
             }
             QPushButton:hover, QToolButton:hover { background: #0d3a21; }
-            QPushButton:pressed, QToolButton:pressed { background: #0f4c2b; color: #d7ffee; }
+            QPushButton:pressed, QToolButton:pressed {
+                background: #16673b;
+                color: #effff7;
+                border: 1px solid #53f2ab;
+                padding-top: 5px;
+                padding-left: 11px;
+                padding-bottom: 3px;
+                padding-right: 9px;
+            }
             QPushButton:disabled, QToolButton:disabled {
                 color: #2f7f58; border-color: #1f5b3d; background: #041108;
             }
 
             QToolBar#mainToolbar {
-                background: #041508; border-top: 1px solid #0d8f54; border-bottom: 1px solid #0d8f54;
-                spacing: 2px; padding: 4px 6px;
+                background: #041508;
+                border: 1px solid #15ca76;
+                margin: 5px 8px 3px 8px;
+                spacing: 3px;
+                padding: 5px 8px;
             }
             QToolBar#mainToolbar QToolButton {
                 min-height: 24px; padding: 4px 10px;
             }
             QToolBar#mainToolbar::separator { background: #0d8f54; width: 1px; margin: 2px 8px; }
+            QLabel#sampleCodesLabel {
+                color: #bbffe0;
+                font-weight: 700;
+                padding: 0 6px 0 2px;
+            }
+            QComboBox#sampleCodesCombo {
+                min-height: 26px;
+                background: #052312;
+                color: #defff0;
+                border: 1px solid #19d17d;
+                min-width: 170px;
+            }
+            QComboBox#sampleCodesCombo:hover {
+                border: 1px solid #2ee792;
+                background: #08311b;
+            }
+            QComboBox#sampleCodesCombo:focus {
+                border: 1px solid #54f5ab;
+            }
+            QComboBox#sampleCodesCombo QAbstractItemView {
+                background: #031003;
+                color: #d9ffef;
+                border: 1px solid #15ca76;
+                selection-background-color: #0d4a2a;
+                selection-color: #effff8;
+                outline: none;
+            }
 
             QWidget#titleBar { background: #041909; border-bottom: 1px solid #0d8f54; }
             QLabel#titleLabel { color: #c9ffe5; font-weight: 700; letter-spacing: 0.5px; }
@@ -1147,25 +1343,18 @@ Comments: // ; #
             QSizeGrip { background: #041508; border: 1px solid #0b7c49; }
             #lineNumberArea { background: #041508; border-right: 1px solid #0b7c49; }
 
-            QLineEdit, QSpinBox { min-height: 22px; padding: 0 6px; }
-            QSpinBox::up-button, QSpinBox::down-button {
-                subcontrol-origin: padding; width: 14px; background: #041909; border-left: 1px solid #0b7c49;
+            QLineEdit { min-height: 22px; padding: 0 6px; }
+            QSpinBox {
+                min-height: 22px;
+                padding: 0 6px;
+                background: #031003;
+                color: #80ffc6;
+                border: 1px solid #0b7c49;
+                selection-background-color: #0f3b1f;
+                selection-color: #c8ffe5;
             }
-            QSpinBox::up-button { border-bottom: 1px solid #0b7c49; }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #0d3a21; }
-            QSpinBox::up-arrow, QSpinBox::down-arrow { image: none; width: 0px; height: 0px; }
-            QSpinBox::up-arrow {
-                border-left: 4px solid transparent; border-right: 4px solid transparent;
-                border-bottom: 6px solid #8affcb; margin-top: 1px;
-            }
-            QSpinBox::down-arrow {
-                border-left: 4px solid transparent; border-right: 4px solid transparent;
-                border-top: 6px solid #8affcb; margin-bottom: 1px;
-            }
-            QComboBox::drop-down { border: 1px solid #0b7c49; background: #041909; }
-            QComboBox::down-arrow {
-                image: none; border-left: 4px solid transparent; border-right: 4px solid transparent;
-                border-top: 6px solid #8affcb;
+            QSpinBox:focus {
+                border: 1px solid #26d684;
             }
 
             QMenu { background: #031003; color: #80ffc6; border: 1px solid #0b7c49; }
@@ -1213,6 +1402,29 @@ Comments: // ; #
         self.editor.clear()
         self.current_file = None
         self.statusBar().showMessage("New file", 2000)
+
+    def load_sample_code(self, index: int) -> None:
+        if index <= 0:
+            return
+        sample_name = self.sample_codes_combo.itemText(index)
+        sample_source = SAMPLE_CODES.get(sample_name)
+        if sample_source is None:
+            return
+        if self.timer.isActive():
+            self.timer.stop()
+        self.editor.setPlainText(sample_source.strip() + "\n")
+        self.current_file = None
+        self.program = None
+        self.addr_to_line = {}
+        self.cpu.reset()
+        self._last_reg_changes = set()
+        self._last_mem_changes = set()
+        self.update_register_view()
+        self.update_memory_view()
+        self._sync_pulse()
+        self.highlight_line(None)
+        self.statusBar().showMessage(f"Loaded sample: {sample_name}", 3000)
+        self.sample_codes_combo.setCurrentIndex(0)
 
     def open_file(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
