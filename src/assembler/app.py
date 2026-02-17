@@ -158,8 +158,17 @@ class LintHighlighter(QtGui.QSyntaxHighlighter):
         super().__init__(document)
         self._error_spans: dict[int, tuple[int, int]] = {}
         self._comment_markers = ("//", ";", "#")
+        self._mnemonics = {
+            *RR_OPCODES.keys(),
+            *GEN_OPCODES.keys(),
+            *IMM_OPCODES.keys(),
+            *JUMP_OPCODES.keys(),
+        }
         self._comment_format = QtGui.QTextCharFormat()
-        self._comment_format.setForeground(QtGui.QColor("#6b6b6b"))
+        self._comment_format.setForeground(QtGui.QColor("#ffffff"))
+        self._mnemonic_format = QtGui.QTextCharFormat()
+        self._mnemonic_format.setForeground(QtGui.QColor("#4dff8a"))
+        self._mnemonic_format.setFontWeight(QtGui.QFont.Weight.DemiBold)
         self._error_format = QtGui.QTextCharFormat()
         self._error_format.setUnderlineStyle(
             QtGui.QTextCharFormat.UnderlineStyle.WaveUnderline
@@ -176,6 +185,20 @@ class LintHighlighter(QtGui.QSyntaxHighlighter):
             idx = text.find(marker)
             if idx != -1 and (comment_start is None or idx < comment_start):
                 comment_start = idx
+
+        code_text = text if comment_start is None else text[:comment_start]
+        if code_text.strip():
+            label_prefix = r"(?:\s*[A-Za-z_][A-Za-z0-9_]*\s*:\s*)*"
+            match = re.match(rf"^\s*{label_prefix}([A-Za-z_][A-Za-z0-9_]*)", code_text)
+            if match:
+                mnemonic = match.group(1).upper()
+                if mnemonic in self._mnemonics:
+                    self.setFormat(
+                        match.start(1),
+                        len(match.group(1)),
+                        self._mnemonic_format,
+                    )
+
         if comment_start is not None:
             self.setFormat(comment_start, len(text) - comment_start, self._comment_format)
 
