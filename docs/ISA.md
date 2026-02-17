@@ -48,7 +48,7 @@ MOV [R] , [R]   |    001 1001
 These will share the register to register format due to it having 7 bits and they start with 000 and don't care about register values
 
 HLT   000 0000 halt CPU operations 
-NOP  000 0000   proceed with no action
+NOP  000 00001  proceed with no action
 
 # Jump operation 
 
