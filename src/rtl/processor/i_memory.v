@@ -14,6 +14,7 @@ module imem #(
     // Just for debugging
     assign wire mem_read = read_write_flags[0];
     assign wire mem_write = read_write_flags[1];
+    // TODO: This needs to be FINISHED. Clean it up
     $readmemh("program.hex", storage);
     
     always @(*) begin
