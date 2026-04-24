@@ -161,3 +161,118 @@ Current repo software model behavior:
 - `imm11` is sign-extended before the jump offset is applied.
 - `JPBLW` uses an unsigned comparison.
 - Register select values follow the table above.
+
+## Suggestions 
+
+what if we make the opcode field directly just 7 bits cash, and play around with the rest
+
+```text
+General / reg-reg:
+  [14:8] opcode
+  [7:4]  Ra
+  [3:0]  Rb
+
+Jump:
+  [14:8] opcode
+  [7:0]  imm8
+
+Immediate:
+  [14:8] opcode
+  [7:0]   imm8
+```
+
+This way jumps just become referenced to what is in JMPOFF + an 8-bit offset.
+
+Immediates? We make a special purpose register called IMR for carryinh immediates.
+
+28-bits is like
+
+| 4-bits | 8-bits | 8-bits | 8-bits |
+
+So we can load an immediate in 4 cycles
+
+```verilog
+
+reg [28:0] IMR;
+reg [7:0] incoming_immediate;
+reg [1:0] slot;
+
+always @(*) 
+begin
+  case(slot)
+    2'b00: IMR[7:0] = incoming_immediate;
+    2'b01: IMR[15:8] = incoming_immediate;
+    2'b10: IMR[23:16] = incoming_immediate;
+    2'b11: IMR[27:24] = incoming_immediate[3:0];
+  endcase
+end
+
+```
+
+And we can just make four immediate load instructions now that we have 2^7 possible instructions. Pretty cool, right?
+
+so it would look something like this:
+
+``` assembly
+; Go off on a limb: LIL/LIH -> [15:0] and LILL/LIHH -> [27:16]
+LIL  32
+LIH  45
+LILL 66
+LIHH 255 ;this will get truncated, but argument for it is IF we go 32 bit mode we really dont lose much
+
+MOV r1, imr ;now we just move the imr value to r1
+```
+
+Thus, after these instructions, we would have:
+
+| 4-bits | 8-bits | 8-bits | 8-bits |
+| --- | --- | --- | --- |
+| 1111 | 01000010 | 00101101 | 00100000 |
+
+
+As for the memory load/store instructions?
+Why use a direct 8 bit immediate when you can just do the same thing but read from a register reference.
+
+behaviorwise we can always have 
+
+| [14:8] opcode | Mnemonic | Behavior |
+| --- | --- | --- |
+| dunno | `LIL imm8` | Set `IMR[7:0] = imm8` |
+| dunno | `LIH imm8` | Set `IMR[15:8] = imm8` |
+| dunno | `LILL imm8` | Set `IMR[23:16] = imm8` |
+| dunno | `LIHH imm8` | Set `IMR[27:24] = imm8` |
+| dunno | `LOAD Ra, Rb` | `Ra = MEM[Rb + MEMOFF]` as a 28-bit word |
+| dunno | `STOR Ra, Rb` | `MEM[Rb + MEMOFF] = Ra` as a 28-bit word |
+
+
+Annnnnd what if we rebrand MEMOFF as a "segmenter" since that was what we originally had in mind.
+
+soooo
+
+| opcode7 | Mnemonic | Behavior |
+| --- | --- | --- |
+| `0000000` | `HLT` | Halt CPU operation |
+| `0000001` | `NOP` | No action |
+| `0010000` | `NOT Ra` | `Ra = ~Ra` |
+| `0010001` | `OR Ra, Rb` | `Ra = Ra OR Rb` |
+| `0010010` | `AND Ra, Rb` | `Ra = Ra AND Rb` |
+| `0010011` | `XOR Ra, Rb` | `Ra = Ra XOR Rb` |
+| `0010100` | `SHL Ra` | `Ra = Ra << SHC` |
+| `0010101` | `SHR Ra` | `Ra = Ra >> SHC` |
+| `0010110` | `SAR Ra` | `Ra = arithmetic_right_shift(Ra, SHC)` |
+| `0010111` | `ADD Ra, Rb` | `Ra = Ra + Rb` |
+| `0011000` | `SUB Ra, Rb` | `Ra = Ra - Rb` |
+| `0011001` | `MOV Ra, Rb` | `Ra = Rb` |
+| `0011010` | `LIL imm8` | Set `IMR[7:0] = imm8` |
+| `0011011` | `LIH imm8` | Set `IMR[15:8] = imm8` |
+| `0011100` | `LILL imm8` | Set `IMR[23:16] = imm8` |
+| `0011101` | `LIHH imm8` | Set `IMR[27:24] = imm[3:0]` |
+| `0011110` | `LOAD Ra, Rb` | `Ra = MEM[Rb + MEMOFF]` as a 28-bit word |
+| `0011111` | `STOR Ra, Rb` | `MEM[Rb + MEMOFF] = Ra` as a 28-bit word |
+| `1000000` | `JMP imm8` | `IC = IC + (imm8 << 1)` |
+| `1000001` | `JMPL imm8` | `IC = IC + (imm8 << 1) + JMPOFF` |
+| `1000010` | `JPEQ imm8` | If `CMPA == CMPB`, do `JMPL` |
+| `1000011` | `JPBLW imm8` | If `CMPA < CMPB`, do `JMPL` |
+| `1000100` | `JMPR Ra` | `IC = IC + (Ra << 1)` | 
+
+maybe let's not do JMPR. It's more headache than necessary for this version especially.
