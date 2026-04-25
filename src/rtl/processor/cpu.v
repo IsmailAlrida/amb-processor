@@ -12,7 +12,9 @@ module cpu #(
     NUM_OF_REGS = 16,
 ) (
     input clk,
-    input reset
+    input reset,
+    input [INSTRUCTION_WIDTH-1:0] instr,
+    output [INSTRUCTION_ADDRESS_SPACE-1:0] IC
 );
 
     // Register Addresses 
@@ -21,18 +23,27 @@ module cpu #(
     localparam [3:0] CMPB_ADDR = 4'b1111;
 
     // Global Zero Register
-    reg [DATA_WORD_WIDTH-1:0] ZR;
+    wire [DATA_WORD_WIDTH-1:0] ZR;
     assign ZR = 28'h0000000;
 
+    // Core state
+    reg [DATA_WORD_WIDTH-1:0] IC;
+    reg WillBranch;
+    reg [DATA_WORD_WIDTH-1:0] RegDataWrite;
 
-    // Wires moving between two components
-    reg [DATA_WORD_WIDTH-1:0] IC; 
-    wire [DATA_WORD_WIDTH-1:0] IC_OUT, IC_increment, NextIC, JumpOffset, LJumpStride;
-    wire [DATA_WORD_WIDTH-1:0] MEMOFF, JMPOFF, DmemFetch, OperandA, OperandB, ALURes; 
+    // Datapath wires
+    wire [DATA_WORD_WIDTH-1:0] IC_increment, NextIC, JumpOffset, LJumpStride;
+    wire [DATA_WORD_WIDTH-1:0] MEMOFF, JMPOFF, DmemFetch, OperandA, OperandB, ALURes;
+    wire [DATA_WORD_WIDTH-1:0] ImmExtd, ImmExtdSigned;
+    wire [DATA_WORD_WIDTH-1:0] ReadData1, ReadData2;
 
-    // Control flag single-bit wires
-    wire RegWrite, MemOp, LongJump, isJump, BranchType, isImmLoad, WriteEn, ReadEn, WillBranch, halt, zerof, altb;
-    
+    // Register select and decode wires
+    wire [INSTRUCTION_WIDTH-1:0] instr;
+    wire [6:0] opcode;
+    wire [3:0] ReadReg1, ReadReg2, WriteReg;
+
+    // Control wires
+    wire RegWrite, MemOp, LongJump, isJump, BranchType, isImmLoad, WriteEn, ReadEn, halt, zerof, altb;
     // Control Multi-bit flags
     wire [3:0] ALUCtrl;
     wire [1:0] ImmSel; // This ons is for reg file
@@ -41,40 +52,21 @@ module cpu #(
 
     // Just for niceness. BranchType 1 = CMP action A==B, 0 = CMP Action A<B
     assign CMPType = {BranchType, isJump};
-
-    // Instruction Memory Bus
-    wire [INSTRUCTION_WIDTH-1:0] instr;
-
-    // To Control Unit
-    wire [6:0] opcode;
-
-    // For the IMR Branch, we pad with zeroes.
-    wire [DATA_WORD_WIDTH-1:0] ImmExtd;
-    wire [DATA_WORD_WIDTH-1:0] ImmExtdSigned;
-    wire [3:0] ReadReg1;
-    wire [3:0] ReadReg2;
-    wire [3:0] WriteReg;
-
     assign opcode        = instr[14:8];
     assign ImmExtd       = {{(DATA_WORD_WIDTH-8){1'b0}},     instr[7:0]};
     assign ImmExtdSigned = {{(DATA_WORD_WIDTH-8){instr[7]}}, instr[7:0]};
 
-    
-    // -- CPU GLUE -- 
-
     // Instruction Counter Path
-
     assign LJumpStride = LongJump ? JMPOFF : ZR;
     // TODO: Signed or unsigned jumps?
     assign JumpOffset = (ImmExtdSigned + LJumpStride) << 1;
 
-
     always @(*) begin
-        casez (CMPType)
+        case (CMPType)
             2'b00: WillBranch = altb;
             2'b01: WillBranch = 1'b1;
             2'b10: WillBranch = ZR[0];
-            2'b11: WillBranch = zerof; 
+            2'b11: WillBranch = zerof;
         endcase
     end
 
@@ -90,15 +82,14 @@ module cpu #(
         end
     end
 
-
     // To Reg File
     assign ReadReg1 = isJump ? CMPA_ADDR : instr[7:4];
     assign ReadReg2 = isJump ? CMPB_ADDR : instr[3:0];
     assign WriteReg = isImmLoad ? IMR_ADDR : instr[3:0];
-    reg [DATA_WORD_WIDTH-1:0] RegDataWrite;
+
     // This is to specify where the data for the register write comes from
     always @(*) begin
-        casez (RegDest)
+        case (RegDest)
             2'b00: RegDataWrite = DmemFetch;
             2'b01: RegDataWrite = ALURes;
             2'b10: RegDataWrite = ImmExtd;
@@ -106,34 +97,31 @@ module cpu #(
         endcase
     end
 
-    // From Reg File
-    wire [DATA_WORD_WIDTH-1:0] ReadData1, ReadData2;
-
     // ALU Operand Muxing
     assign OperandA = ReadData1;
     assign OperandB = MemOp ? MEMOFF : ReadData2;
-
-     
-
 
     imem #(
         .INSTRUCTION_WIDTH(INSTRUCTION_WIDTH),
         .INSTRUCTION_ADDRESS_SPACE(INSTRUCTION_ADDRESS_SPACE)
     ) imem_inst (
-        .IC(IC),
-        .instr(instr),
         .clk(clk),
         .reset(reset),
-        .halt(halt)
+        .halt(halt),
+        .IC(IC),
+        .instr(instr)
     );
 
-    // Register File 
+    // Register File
     // TODO: Register file-related glue is done. Move on
     reg_file #(
         .DATA_WORD_WIDTH(DATA_WORD_WIDTH),
         .ADDR_WIDTH(REG_ADDR_WIDTH),
         .NUM_OF_REGS(NUM_OF_REGS)
     ) reg_file_inst (
+        .clk(clk),
+        .reset(reset),
+        .halt(halt),
         .ReadAddr1(ReadReg1),
         .ReadAddr2(ReadReg2),
         .WriteAddr(WriteReg),
@@ -143,31 +131,30 @@ module cpu #(
         .ReadData2(ReadData2),
         .MEMOFF(MEMOFF),
         .JMPOFF(JMPOFF),
-        .ImmSel(ImmSel),
-        .clk(clk),
-        .reset(reset),
-        .halt(halt)
-    ); 
+        .ImmSel(ImmSel)
+    );
 
-    // ALU 
+    // ALU
     alu #(
         .DATA_WORD_WIDTH(DATA_WORD_WIDTH)
     ) alu_inst (
-        .OperandA(OperandA),
-        .OperandB(OperandB),
-        .result(ALURes),
-        .zero(zerof),
-        .altb(altb), // Flag for A less than B
-        .ALUCtrl(ALUCtrl),
         .clk(clk),
         .reset(reset),
-        .halt(halt)
+        .halt(halt),
+        .OperandA(OperandA),
+        .OperandB(OperandB),
+        .ALUCtrl(ALUCtrl),
+        .result(ALURes),
+        .zero(zerof),
+        .altb(altb) // Flag for A less than B
     );
 
     // Control Unit
     controller #(
 
     )  controller_inst (
+        .clk(clk),
+        .reset(reset),
         .opcode(opcode),
         .MemOp(MemOp),
         .RegWrite(RegWrite),
@@ -180,9 +167,7 @@ module cpu #(
         .RegDest(RegDest),
         .ImmSel(ImmSel),
         .ALUCtrl(ALUCtrl),
-        .halt(halt),
-        .clk(clk),
-        .reset(reset)
+        .halt(halt)
     );
 
     // Data Memory
@@ -190,17 +175,13 @@ module cpu #(
         .DATA_ADDR_SPACE(DATA_ADDR_SPACE),
         .DATA_WORD_WIDTH(DATA_WORD_WIDTH),
     ) dmem_inst (
+        .clk(clk),
+        .reset(reset),
+        .halt(halt),
         .Address(ALURes),
         .DataIn(ReadData2),
         .DataOut(DmemFetch),
         .ReadEn(ReadEn),
-        .WriteEn(WriteEn),
-        .clk(clk),
-        .reset(reset),
-        .halt(halt)
+        .WriteEn(WriteEn)
     );
-
-
-
-    
 endmodule
