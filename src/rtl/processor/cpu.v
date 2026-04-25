@@ -11,18 +11,27 @@ module cpu #(
     REG_ADDR_WIDTH = 5,
     NUM_OF_REGS = 16,
 ) (
-    input clk
+    input clk,
+    input reset
 );
 
+    // Register Addresses 
+    localparam [3:0] IMR_ADDR = 4'b1011;
+    localparam [3:0] CMPA_ADDR = 4'b1110;
+    localparam [3:0] CMPB_ADDR = 4'b1111;
+
     // Global Zero Register
-    assign reg[DATA_WORD_WIDTH-1:0] ZR = 28'h0000000;
-    // Used to link between components
+    reg [DATA_WORD_WIDTH-1:0] ZR;
+    assign ZR = 28'h0000000;
+
+
+    // Wires moving between two components
     reg [DATA_WORD_WIDTH-1:0] IC; 
-    wire [DATA_WORD_WIDTH-1:0] IC_OUT, IC_increment, JumpAddr, JumpOffset;
-    wire [DATA_WORD_WIDTH-1:0] MEMOFF, JMPOFF, CMPA, CMPB, DmemFetch, OperandA, OperandB, ALURes, zerof, altb; 
+    wire [DATA_WORD_WIDTH-1:0] IC_OUT, IC_increment, NextIC, JumpOffset, LJumpStride;
+    wire [DATA_WORD_WIDTH-1:0] MEMOFF, JMPOFF, DmemFetch, OperandA, OperandB, ALURes; 
 
     // Control flag single-bit wires
-    wire RegWrite, MemOp, LongJump, isJump, BranchType, isImmLoad, WriteEn, ReadEn, WillBranch;
+    wire RegWrite, MemOp, LongJump, isJump, BranchType, isImmLoad, WriteEn, ReadEn, WillBranch, halt, zerof, altb;
     
     // Control Multi-bit flags
     wire [3:0] ALUCtrl;
@@ -30,46 +39,63 @@ module cpu #(
     wire [1:0] CMPType;
     wire [1:0] RegDest; // This is 2 bit cuz we can write either from mem, from ALU, or from Imm
 
-    // Just for niceness
+    // Just for niceness. BranchType 1 = CMP action A==B, 0 = CMP Action A<B
     assign CMPType = {BranchType, isJump};
 
     // Instruction Memory Bus
     wire [INSTRUCTION_WIDTH-1:0] instr;
 
     // To Control Unit
-    assign wire [6:0] opcode = instr[14:8];
+    wire [6:0] opcode;
 
     // For the IMR Branch, we pad with zeroes.
-    assign wire [DATA_WORD_WIDTH-1:0] ImmExtd       = {{(DATA_WORD_WIDTH-8){1'b0}},     instr[7:0]};
-    assign wire [DATA_WORD_WIDTH-1:0] ImmExtdSigned = {{(DATA_WORD_WIDTH-8){instr[7]}}, instr[7:0]};
+    wire [DATA_WORD_WIDTH-1:0] ImmExtd;
+    wire [DATA_WORD_WIDTH-1:0] ImmExtdSigned;
+    wire [3:0] ReadReg1;
+    wire [3:0] ReadReg2;
+    wire [3:0] WriteReg;
+
+    assign opcode        = instr[14:8];
+    assign ImmExtd       = {{(DATA_WORD_WIDTH-8){1'b0}},     instr[7:0]};
+    assign ImmExtdSigned = {{(DATA_WORD_WIDTH-8){instr[7]}}, instr[7:0]};
 
     
     // -- CPU GLUE -- 
 
     // Instruction Counter Path
 
-    assign JumpOffset = LongJump ? JMPOFF : ZR;
-    // TODO: Check if we want signed jumping or unsigned immediate jumping
-    assign JumpAddr = (ImmExtdSigned + JumpOffset) << 1;
+    assign LJumpStride = LongJump ? JMPOFF : ZR;
+    // TODO: Signed or unsigned jumps?
+    assign JumpOffset = (ImmExtdSigned + LJumpStride) << 1;
 
 
     always @(*) begin
         casez (CMPType)
-            2'b00: WillBranch = 1'b0;
+            2'b00: WillBranch = altb;
             2'b01: WillBranch = 1'b1;
-            2'b10: WillBranch = zerof; // this is the ALU zero flag
-            2'b11: WillBranch = altb; // This is the A less than B flag
+            2'b10: WillBranch = ZR[0];
+            2'b11: WillBranch = zerof; 
         endcase
     end
 
-    assign IC = WillBranch ? JumpAddr : IC_increment;
+    assign IC_increment = WillBranch ? JumpOffset : 28'd2;
+    assign NextIC = IC + IC_increment;
+
+    // This is the instruction counter loop
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            IC <= ZR;
+        end else if (!halt) begin
+            IC <= NextIC;
+        end
+    end
 
 
     // To Reg File
-    assign wire [3:0] ReadReg1 = isJump ? CMPA : instr[7:4];
-    assign wire [3:0] ReadReg2 = isJump ? CMPB : instr[3:0];
-    assign wire [3:0] WriteReg = isImmLoad ? IMR : instr[3:0];
-    wire [DATA_WORD_WIDTH-1:0] RegDataWrite;
+    assign ReadReg1 = isJump ? CMPA_ADDR : instr[7:4];
+    assign ReadReg2 = isJump ? CMPB_ADDR : instr[3:0];
+    assign WriteReg = isImmLoad ? IMR_ADDR : instr[3:0];
+    reg [DATA_WORD_WIDTH-1:0] RegDataWrite;
     // This is to specify where the data for the register write comes from
     always @(*) begin
         casez (RegDest)
@@ -95,10 +121,14 @@ module cpu #(
         .INSTRUCTION_ADDRESS_SPACE(INSTRUCTION_ADDRESS_SPACE)
     ) imem_inst (
         .IC(IC),
-        .instr(instr)
+        .instr(instr),
+        .clk(clk),
+        .reset(reset),
+        .halt(halt)
     );
 
     // Register File 
+    // TODO: Register file-related glue is done. Move on
     reg_file #(
         .DATA_WORD_WIDTH(DATA_WORD_WIDTH),
         .ADDR_WIDTH(REG_ADDR_WIDTH),
@@ -114,6 +144,9 @@ module cpu #(
         .MEMOFF(MEMOFF),
         .JMPOFF(JMPOFF),
         .ImmSel(ImmSel),
+        .clk(clk),
+        .reset(reset),
+        .halt(halt)
     ); 
 
     // ALU 
@@ -125,6 +158,10 @@ module cpu #(
         .result(ALURes),
         .zero(zerof),
         .altb(altb), // Flag for A less than B
+        .ALUCtrl(ALUCtrl),
+        .clk(clk),
+        .reset(reset),
+        .halt(halt)
     );
 
     // Control Unit
@@ -141,7 +178,11 @@ module cpu #(
         .WriteEn(WriteEn),
         .ReadEn(ReadEn),
         .RegDest(RegDest),
-        .ImmSel(ImmSel)
+        .ImmSel(ImmSel),
+        .ALUCtrl(ALUCtrl),
+        .halt(halt),
+        .clk(clk),
+        .reset(reset)
     );
 
     // Data Memory
@@ -150,10 +191,13 @@ module cpu #(
         .DATA_WORD_WIDTH(DATA_WORD_WIDTH),
     ) dmem_inst (
         .Address(ALURes),
-        .DataIn(ReadReg2),
+        .DataIn(ReadData2),
         .DataOut(DmemFetch),
         .ReadEn(ReadEn),
-        .WriteEn(WriteEn)
+        .WriteEn(WriteEn),
+        .clk(clk),
+        .reset(reset),
+        .halt(halt)
     );
 
 
