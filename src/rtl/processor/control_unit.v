@@ -64,7 +64,8 @@ module controller #(
     localparam  ALU_MOV = 4'b1001;
 
 
-    reg RTYPE = (opcode >= NOT) || (opcode <= MOV);
+    wire RTYPE;
+    assign RTYPE = (opcode >= NOT) && (opcode <= MOV);
 
     //! MemOp
     always @(*) begin
@@ -78,7 +79,7 @@ module controller #(
     //! RegWrite
     always @(*) begin
         // Set only when not J-types (!opcode[6]) or when not STOR instruction
-        if (!opcode[6] || opcode != STOR) begin
+        if (!opcode[6] && opcode != STOR && opcode != HALT && opcode != NOP) begin
             RegWrite = set;
         end else begin
             RegWrite = unset;
@@ -172,6 +173,7 @@ module controller #(
     //! ImmSel 
     //TODO: I have a feeling the lack of an else statement can cause a hazard here or something.
     always @(*) begin
+        ImmSel = 2'b00;
         if (opcode == LIL) begin
             ImmSel = 2'b00;
         end else if (opcode == LIH) begin

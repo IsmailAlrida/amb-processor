@@ -55,7 +55,7 @@ module alu #(
                 result = OperandA & OperandB;
             end
             ALU_XOR : begin
-                result = OperandA ^^ OperandB;
+                result = OperandA ^ OperandB;
             end
             ALU_SHL : begin
                 result = OperandA << OperandB;
@@ -64,7 +64,7 @@ module alu #(
                 result = OperandA >> OperandB;
             end
             ALU_SAR : begin
-                result = OperandA >>> OperandB;
+                result = $signed(OperandA) >>> OperandB;
             end
             ALU_ADD : begin
                 result = OperandA + OperandB;

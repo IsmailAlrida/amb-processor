@@ -255,7 +255,7 @@ Suggested 16-slot register map under the ideas above:
 
 | Sel | Name | Role | Notes |
 | --- | --- | --- | --- |
-| `0000` | `R0` | General purpose | Unchanged general-purpose register |
+| `0000` | `R0` | |General purpose | Unchanged general-purpose register |
 | `0001` | `R1` | General purpose | Unchanged general-purpose register |
 | `0010` | `R2` | General purpose | Unchanged general-purpose register |
 | `0011` | `R3` | General purpose | Unchanged general-purpose register |

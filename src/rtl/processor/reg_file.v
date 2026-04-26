@@ -36,17 +36,24 @@ module reg_file #(
     localparam CMPB = 4'b1111;
     
     //TODO: Fix this if needed
-    reg [DATA_WORD_WIDTH-1:0] registry [0:ADDR_WIDTH-1];
+    reg [DATA_WORD_WIDTH-1:0] registry [0:NUM_OF_REGS-1];
 
     always @(*) begin
         ReadDataRa = registry[ReadAddrRa];
         ReadDataRb = registry[ReadAddrRb];
     end
 
+    assign MEMOFF_OUT = registry[MEMOFF];
+    assign JMPOFF_OUT = registry[JMPOFF];
+
     // Can only put WriteData in registry[WriteAddr] if !halt and RegWrite. 
     // Optionally, if WriteAddr == IMR, then use ImmSel to multiplex where data overwrites
-    always @(posedge clk) begin
-        if (!halt && RegWrite) begin
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            for (i = 0; i < NUM_OF_REGS; i++) begin
+                registry[i] <= {DATA_WORD_WIDTH{1'b0}};
+            end
+        end else if (!halt && RegWrite) begin
             if (WriteAddr == IMR) begin
                 // ImmSel Multiplexing
                 case (ImmSel)
