@@ -35,6 +35,8 @@ module reg_file #(
     localparam CMPA = 4'b1110;
     localparam CMPB = 4'b1111;
     
+    integer i;
+    
     //TODO: Fix this if needed
     reg [DATA_WORD_WIDTH-1:0] registry [0:NUM_OF_REGS-1];
 
