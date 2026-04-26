@@ -9,7 +9,7 @@ module imem #(
     output reg [INSTRUCTION_WIDTH-1:0] instr
 );
 
-    reg [INSTRUCTION_WIDTH-1:0] imemory [0:2**INSTRUCTION_ADDRESS_SPACE -1];
+    reg [7:0] imemory [0:2**INSTRUCTION_ADDRESS_SPACE -1];
 
     initial begin
         $readmemh("program.hex", imemory);
