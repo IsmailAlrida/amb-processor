@@ -20,9 +20,9 @@ module alu #(
     //! A [DATA_wORD_WIDTH-1:0] result of the ALU operation
     output reg [DATA_WORD_WIDTH-1:0] result,
     //! Zero flag set when the result of an operation is 0
-    output zero,
+    output reg zero,
     //! A-less-than-B flag is set when... A is less than B (OperandA < OperandB). 
-    output altb
+    output reg altb
 );
 
 
@@ -39,15 +39,9 @@ module alu #(
     localparam  ALU_SUB = 4'b1000;
     localparam  ALU_MOV = 4'b1001;
 
-    assign zero = (OperandA == OperandB);
-    assign altb = (OperandA < OperandB);
-
 
     //! Selects which of the many operations to conduct on Operand A and Operand B
     always @(*) begin : operation_select
-        initial begin
-            zero = unset;
-        end
         case (ALUCtrl)
             //! Invert OperandA
             // TODO: Add another NOT method to use the hardware efficiently by inverting BOTH OpA and OpB
@@ -85,6 +79,9 @@ module alu #(
             //! Do nothing. Write back Ra as is.
             default:  result = OperandA;
         endcase
+
+        zero = (OperandA == OperandB);
+        altb = (OperandA < OperandB);
     end
 
 endmodule

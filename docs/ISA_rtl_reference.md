@@ -263,7 +263,7 @@ Suggested 16-slot register map under the ideas above:
 | `0101` | `R5` | General purpose | Unchanged general-purpose register |
 | `0110` | `R6` | General purpose | Unchanged general-purpose register |
 | `0111` | `R7` | General purpose | Unchanged general-purpose register |
-| `1000` | `IC` | Instruction counter | Byte-addressed program counter |
+| `1000` | `R8` | General purpose | Yeah we wont IC in the reg file. it's gonna be independent component |
 | `1001` | `SP` | Stack pointer | Preserved in the suggested model |
 | `1010` | `LC` | Loop counter | Preserved in the suggested model |
 | `1011` | `IMR` | Immediate assembly register | Replaces the former `SHC` slot in this suggested model |
