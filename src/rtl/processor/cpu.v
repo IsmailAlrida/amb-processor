@@ -154,15 +154,15 @@ module cpu #(
         .clk(clk),
         .reset(reset),
         .halt(halt),
-        .ReadAddr1(ReadRegRb),
-        .ReadAddr2(ReadRegRa),
+        .ReadAddrRb(ReadRegRb),
+        .ReadAddrRa(ReadRegRa),
         .WriteAddr(WriteReg),
         .WriteData(RegDataWrite),
         .RegWrite(RegWrite),
         .ReadDataRb(ReadDataRb),
         .ReadDataRa(ReadDataRa),
-        .MEMOFF(MEMOFF),
-        .JMPOFF(JMPOFF),
+        .MEMOFF_OUT(MEMOFF),
+        .JMPOFF_OUT(JMPOFF),
         .ImmSel(ImmSel)
     );
 
