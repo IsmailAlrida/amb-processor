@@ -9,14 +9,15 @@ from .isa import (
     ADDR_MASK,
     GEN_OPCODES,
     IMM_OPCODES,
+    JUMP_OPCODES,
+    MEM_OPCODES,
     REG_CMPA,
     REG_CMPB,
-    JUMP_OPCODES,
     REG_IC,
+    REG_IMR,
     REG_JMPOFF,
     REG_MEMOFF,
     REG_NAMES,
-    REG_SHC,
     RR_OPCODES,
     WORD_BITS,
     WORD_MASK,
@@ -102,20 +103,24 @@ class ExecResult:
 class CPU:
     def __init__(self) -> None:
         self.registers = [0] * len(REG_NAMES)
-        self.memory = Memory()
+        self.imem = Memory()
+        self.dmem = Memory()
+        self.memory = self.dmem
         self.halted = False
 
     def reset(self) -> None:
         self.registers = [0] * len(REG_NAMES)
         self.halted = False
-        self.memory.clear()
+        self.imem.clear()
+        self.dmem.clear()
 
     def load_program(self, words: list[int], start_addr: int = 0) -> None:
         addr = start_addr & ADDR_MASK
         for word in words:
-            self.memory.write_word(addr, word)
+            self.imem.write_word(addr, word)
             addr = (addr + 2) & ADDR_MASK
-        self.memory.clear_dirty()
+        self.imem.clear_dirty()
+        self.dmem.clear_dirty()
         self.registers[REG_IC] = start_addr & ADDR_MASK
 
     def step(self) -> ExecResult:
@@ -123,69 +128,17 @@ class CPU:
             return ExecResult(ic=self.registers[REG_IC], halted=True, message="CPU halted")
 
         pre_regs = list(self.registers)
-        self.memory.clear_dirty()
+        self.dmem.clear_dirty()
 
         ic = self.registers[REG_IC] & ADDR_MASK
-        word = self.memory.read_word(ic)
+        word = self.imem.read_word(ic)
         instr = word & 0x7FFF
-        op3 = (instr >> 12) & 0x7
+        op7 = (instr >> 8) & 0x7F
+        rb = (instr >> 4) & 0xF
+        ra = instr & 0xF
+        imm8 = instr & 0xFF
 
         next_ic = (ic + 2) & ADDR_MASK
-
-        if op3 >= 0b100:
-            op3_val = op3
-            ra = (instr >> 8) & 0xF
-            imm8 = instr & 0xFF
-            if op3_val == IMM_OPCODES["LIL"]:
-                self.registers[ra] = (self.registers[ra] & ~0xFF) | imm8
-            elif op3_val == IMM_OPCODES["LIH"]:
-                self.registers[ra] = (self.registers[ra] & ~(0xFF << 8)) | (imm8 << 8)
-            elif op3_val == IMM_OPCODES["LOAD"]:
-                addr = (imm8 + self.registers[REG_MEMOFF]) & ADDR_MASK
-                self.registers[ra] = self.memory.read_word28(addr)
-            elif op3_val == IMM_OPCODES["STOR"]:
-                addr = (imm8 + self.registers[REG_MEMOFF]) & ADDR_MASK
-                self.memory.write_word28(addr, self.registers[ra])
-            else:
-                return self._build_result(pre_regs, ic, False, "Unknown immediate opcode")
-
-            self.registers[ra] &= WORD_MASK
-            self.registers[REG_IC] = next_ic
-            return self._build_result(pre_regs, next_ic, False)
-
-        if op3 in (0b010, 0b011):
-            op4 = (instr >> 11) & 0xF
-            imm11 = instr & 0x7FF
-            offset = sign_extend(imm11, 11)
-            base = (offset * 2) & ADDR_MASK
-            jmpoff = self.registers[REG_JMPOFF] & ADDR_MASK
-
-            def do_jump(use_long: bool) -> None:
-                nonlocal next_ic
-                addend = base + (jmpoff if use_long else 0)
-                next_ic = (ic + addend) & ADDR_MASK
-
-            if op4 == JUMP_OPCODES["JMP"]:
-                do_jump(False)
-            elif op4 == JUMP_OPCODES["JMPL"]:
-                do_jump(True)
-            elif op4 == JUMP_OPCODES["JPEQ"]:
-                if self.registers[REG_CMPA] == self.registers[REG_CMPB]:
-                    do_jump(True)
-            elif op4 == JUMP_OPCODES["JPBLW"]:
-                if (self.registers[REG_CMPA] & WORD_MASK) < (
-                    self.registers[REG_CMPB] & WORD_MASK
-                ):
-                    do_jump(True)
-            else:
-                return self._build_result(pre_regs, ic, False, "Unknown jump opcode")
-
-            self.registers[REG_IC] = next_ic
-            return self._build_result(pre_regs, next_ic, False)
-
-        op7 = (instr >> 8) & 0x7F
-        ra = (instr >> 4) & 0xF
-        rb = instr & 0xF
 
         if op7 == GEN_OPCODES["HLT"]:
             self.halted = True
@@ -196,8 +149,66 @@ class CPU:
             self.registers[REG_IC] = next_ic
             return self._build_result(pre_regs, next_ic, False)
 
+        if op7 in IMM_OPCODES.values():
+            imr = self.registers[REG_IMR] & WORD_MASK
+            if op7 == IMM_OPCODES["LIL"]:
+                imr = (imr & ~0xFF) | imm8
+            elif op7 == IMM_OPCODES["LIH"]:
+                imr = (imr & ~(0xFF << 8)) | (imm8 << 8)
+            elif op7 == IMM_OPCODES["LILL"]:
+                imr = (imr & ~(0xFF << 16)) | (imm8 << 16)
+            elif op7 == IMM_OPCODES["LIHH"]:
+                imr = (imr & ~(0xF << 24)) | ((imm8 & 0xF) << 24)
+            self.registers[REG_IMR] = imr & WORD_MASK
+            self.registers[REG_IC] = next_ic
+            return self._build_result(pre_regs, next_ic, False)
+
+        if op7 in JUMP_OPCODES.values():
+            offset = sign_extend(imm8, 8)
+            jmpoff = self.registers[REG_JMPOFF] & ADDR_MASK
+
+            def do_jump(use_long: bool) -> None:
+                nonlocal next_ic
+                stride = offset + (jmpoff if use_long else 0)
+                addend = stride << 1
+                next_ic = (ic + addend) & ADDR_MASK
+
+            if op7 == JUMP_OPCODES["JMP"]:
+                do_jump(False)
+            elif op7 == JUMP_OPCODES["JMPL"]:
+                do_jump(True)
+            elif op7 == JUMP_OPCODES["JPEQ"]:
+                if (self.registers[REG_CMPA] & WORD_MASK) == (
+                    self.registers[REG_CMPB] & WORD_MASK
+                ):
+                    do_jump(True)
+            elif op7 == JUMP_OPCODES["JPBLW"]:
+                # RTL signedness is still open; model the documented unsigned compare.
+                if (self.registers[REG_CMPA] & WORD_MASK) < (
+                    self.registers[REG_CMPB] & WORD_MASK
+                ):
+                    do_jump(True)
+            else:
+                return self._build_result(pre_regs, ic, False, "Unknown jump opcode")
+
+            self.registers[REG_IC] = next_ic
+            return self._build_result(pre_regs, next_ic, False)
+
         a_val = self.registers[ra] & WORD_MASK
         b_val = self.registers[rb] & WORD_MASK
+
+        if op7 == MEM_OPCODES["LOAD"]:
+            addr = (b_val + self.registers[REG_MEMOFF]) & ADDR_MASK
+            self.registers[ra] = self.dmem.read_word28(addr)
+            self.registers[ra] &= WORD_MASK
+            self.registers[REG_IC] = next_ic
+            return self._build_result(pre_regs, next_ic, False)
+
+        if op7 == MEM_OPCODES["STOR"]:
+            addr = (b_val + self.registers[REG_MEMOFF]) & ADDR_MASK
+            self.dmem.write_word28(addr, a_val)
+            self.registers[REG_IC] = next_ic
+            return self._build_result(pre_regs, next_ic, False)
 
         if op7 == RR_OPCODES["NOT"]:
             self.registers[ra] = (~a_val) & WORD_MASK
@@ -208,19 +219,19 @@ class CPU:
         elif op7 == RR_OPCODES["XOR"]:
             self.registers[ra] = (a_val ^ b_val) & WORD_MASK
         elif op7 == RR_OPCODES["SHL"]:
-            shift = self.registers[REG_SHC] & WORD_MASK
+            shift = b_val
             if shift >= WORD_BITS:
                 self.registers[ra] = 0
             else:
                 self.registers[ra] = (a_val << shift) & WORD_MASK
         elif op7 == RR_OPCODES["SHR"]:
-            shift = self.registers[REG_SHC] & WORD_MASK
+            shift = b_val
             if shift >= WORD_BITS:
                 self.registers[ra] = 0
             else:
                 self.registers[ra] = (a_val >> shift) & WORD_MASK
         elif op7 == RR_OPCODES["SAR"]:
-            shift = self.registers[REG_SHC] & WORD_MASK
+            shift = b_val
             signed = sign_extend(a_val, 28)
             if shift >= WORD_BITS:
                 self.registers[ra] = WORD_MASK if signed < 0 else 0
@@ -251,7 +262,7 @@ class CPU:
             for idx, (before, after) in enumerate(zip(pre_regs, self.registers))
             if before != after
         }
-        changed_memory = self.memory.consume_dirty()
+        changed_memory = self.dmem.consume_dirty()
         return ExecResult(
             ic=ic,
             halted=halted,

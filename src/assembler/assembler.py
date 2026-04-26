@@ -9,11 +9,11 @@ from .isa import (
     GEN_OPCODES,
     IMM_OPCODES,
     JUMP_OPCODES,
+    MEM_OPCODES,
     RR_OPCODES,
     REG_ALIASES,
     REG_NAMES,
-    encode_imm,
-    encode_jump,
+    encode_imm8,
     encode_rr,
 )
 
@@ -171,7 +171,7 @@ def assemble(source: str) -> Program:
         line_no = inst.line_no
 
         if mnem in RR_OPCODES:
-            if mnem in {"NOT", "SHL", "SHR", "SAR"}:
+            if mnem == "NOT":
                 if len(ops) != 1:
                     raise AsmError(f"{mnem} expects 1 register", line_no)
                 ra = parse_register(ops[0], line_no)
@@ -191,17 +191,24 @@ def assemble(source: str) -> Program:
             continue
 
         if mnem in IMM_OPCODES:
-            if len(ops) != 2:
-                raise AsmError(f"{mnem} expects register and immediate", line_no)
-            ra = parse_register(ops[0], line_no)
-            imm_val, is_label = _resolve_immediate(ops[1], program.labels, line_no)
+            if len(ops) != 1:
+                raise AsmError(f"{mnem} expects an imm8 operand", line_no)
+            imm_val, is_label = _resolve_immediate(ops[0], program.labels, line_no)
             if is_label:
                 raise AsmError(f"{mnem} does not accept labels", line_no)
             if imm_val is None:
                 raise AsmError("Missing immediate", line_no)
             if not (-128 <= imm_val <= 255):
                 raise AsmError(f"Immediate out of range for {mnem}: {imm_val}", line_no)
-            inst.encoded = encode_imm(IMM_OPCODES[mnem], ra, imm_val & 0xFF)
+            inst.encoded = encode_imm8(IMM_OPCODES[mnem], imm_val & 0xFF)
+            continue
+
+        if mnem in MEM_OPCODES:
+            if len(ops) != 2:
+                raise AsmError(f"{mnem} expects 2 registers", line_no)
+            ra = parse_register(ops[0], line_no)
+            rb = parse_register(ops[1], line_no)
+            inst.encoded = encode_rr(MEM_OPCODES[mnem], ra, rb)
             continue
 
         if mnem in JUMP_OPCODES:
@@ -215,9 +222,9 @@ def assemble(source: str) -> Program:
                 if delta % 2 != 0:
                     raise AsmError(f"Label '{ops[0]}' is not 2-byte aligned", line_no)
                 imm_val = delta // 2
-            if not (-1024 <= imm_val <= 1023):
+            if not (-128 <= imm_val <= 127):
                 raise AsmError(f"Jump offset out of range: {imm_val}", line_no)
-            inst.encoded = encode_jump(JUMP_OPCODES[mnem], imm_val & 0x7FF)
+            inst.encoded = encode_imm8(JUMP_OPCODES[mnem], imm_val & 0xFF)
             continue
 
         raise AsmError(f"Unknown instruction '{mnem}'", line_no)
