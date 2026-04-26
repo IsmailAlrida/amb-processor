@@ -7,22 +7,23 @@ module dmem #(
     input halt,
     input [DATA_ADDR_SPACE-1:0] Address,
     input [DATA_WORD_WIDTH-1:0] DataIn,
-    output [DATA_WORD_WIDTH-1:0] DataOut,
+    output reg [DATA_WORD_WIDTH-1:0] DataOut,
     input ReadEn,
     input WriteEn
 );
 
-    reg [DATA_WORD_WIDTH-1:0] dmemory [0:DATA_ADDR_SPACE**2 - 1];
+    reg [DATA_WORD_WIDTH-1:0] dmemory [0:2**DATA_ADDR_SPACE - 1];
+
+    initial begin
+        $readmemh("data.hex", dmemory);
+    end
 
     always @(*) begin
+        if (WriteEn) begin
+            dmemory[Address] = DataIn;
+        end 
         if (ReadEn) begin
             DataOut = dmemory[Address];
         end
-    end
-
-    always @(posedge clk) begin
-        if (WriteEn) begin
-            dmemory[Address] <= DataIn;
-        end 
     end
 endmodule
