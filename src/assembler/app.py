@@ -12,17 +12,35 @@ from pathlib import Path
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from .assembler import AsmError, assemble, parse_number
-from .cpu import CPU
-from .isa import (
-    ADDR_MASK,
-    GEN_OPCODES,
-    IMM_OPCODES,
-    JUMP_OPCODES,
-    REG_NAMES,
-    RR_OPCODES,
-    WORD_MASK,
-)
+if __package__ in (None, ""):
+    pkg_root = Path(__file__).resolve().parents[1]
+    if str(pkg_root) not in sys.path:
+        sys.path.insert(0, str(pkg_root))
+    from assembler.assembler import AsmError, assemble, parse_number
+    from assembler.cpu import CPU
+    from assembler.isa import (
+        ADDR_MASK,
+        GEN_OPCODES,
+        IMM_OPCODES,
+        JUMP_OPCODES,
+        MEM_OPCODES,
+        REG_NAMES,
+        RR_OPCODES,
+        WORD_MASK,
+    )
+else:
+    from .assembler import AsmError, assemble, parse_number
+    from .cpu import CPU
+    from .isa import (
+        ADDR_MASK,
+        GEN_OPCODES,
+        IMM_OPCODES,
+        JUMP_OPCODES,
+        MEM_OPCODES,
+        REG_NAMES,
+        RR_OPCODES,
+        WORD_MASK,
+    )
 
 SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
     # Add new samples here as: ("Sample Name", """assembly code""")
@@ -30,8 +48,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         "Counter Loop",
         """\
         // Count down from 5 to 0 and halt.
-        LIL R0, 5
-        LIL R1, 1
+        LIL 5
+        MOV R0, IMR
+        LIL 1
+        MOV R1, IMR
 
         loop:
         SUB R0, R1
@@ -48,11 +68,15 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         "Shift + Store",
         """\
         // Build a value, shift it, and store to memory.
-        LIL R0, 10
-        LIL SHC, 2
-        SHL R0
-        STOR R0, 32
-        LOAD R2, 32
+        LIL 10
+        MOV R0, IMR
+        LIL 2
+        MOV R1, IMR
+        LIL 32
+        MOV R3, IMR
+        SHL R0, R1
+        STOR R0, R3
+        LOAD R2, R3
         HLT
         """,
     ),
@@ -60,8 +84,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         "Bitwise Demo",
         """\
         // Basic boolean ops.
-        LIL R0, 15
-        LIL R1, 9
+        LIL 15
+        MOV R0, IMR
+        LIL 9
+        MOV R1, IMR
         AND R0, R1
         XOR R1, R0
         OR R0, R1
@@ -72,9 +98,12 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         "Addition Chain",
         """\
         // Build R0 = 1 + 2 + 3.
-        LIL R0, 1
-        LIL R1, 2
-        LIL R2, 3
+        LIL 1
+        MOV R0, IMR
+        LIL 2
+        MOV R1, IMR
+        LIL 3
+        MOV R2, IMR
         ADD R0, R1
         ADD R0, R2
         HLT
@@ -83,13 +112,15 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
     (
         "Shift Register",
         """\
-        // Demonstrate left/right shifts and SHC usage.
-        LIL R0, 12
-        LIL SHC, 1
+        // Demonstrate register-controlled left/right shifts.
+        LIL 12
+        MOV R0, IMR
+        LIL 1
+        MOV R2, IMR
         MOV R1, R0
-        SHL R1
-        SHR R1
-        SAR R1
+        SHL R1, R2
+        SHR R1, R2
+        SAR R1, R2
         HLT
         """,
     ),
@@ -97,8 +128,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         "Loop Until Zero",
         """\
         // Repeatedly decrement R0 until it drops below 1.
-        LIL R0, 6
-        LIL R1, 1
+        LIL 6
+        MOV R0, IMR
+        LIL 1
+        MOV R1, IMR
 
         check:
         MOV CMPA, R0
@@ -114,22 +147,23 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
     (
         "Store 16-bit Value",
         """\
-        // Compose a 16-bit literal into R0 using low/high immediate ops.
-        LIL R0, 0x34
-        LIH R0, 0x12
-        MOV R1, R0
+        // Compose a 16-bit literal into IMR, then copy it to R0.
+        LIL 0x34
+        LIH 0x12
+        MOV R0, IMR
         HLT
         """,
     ),
     (
         "Store a 28-bit Immediate",
     """\
-        // Store a full 28-bit number in the register R0 = 0xE2FABCD
-        LIL R0, 0x2F
-        LIH R0, 0xFE
-        LIL SHC, 16
-        LIL R0, 0xCD
-        LIH R0, 0xAB
+        // Store a full 28-bit number in R0 = 0xEABCDFE
+        LIL 0xFE
+        LIH 0xCD
+        LILL 0xAB
+        LIHH 0x0E
+        MOV R0, IMR
+        HLT
     """
     )
 ]
@@ -162,6 +196,7 @@ class LintHighlighter(QtGui.QSyntaxHighlighter):
             *RR_OPCODES.keys(),
             *GEN_OPCODES.keys(),
             *IMM_OPCODES.keys(),
+            *MEM_OPCODES.keys(),
             *JUMP_OPCODES.keys(),
         }
         self._comment_format = QtGui.QTextCharFormat()
@@ -786,7 +821,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         mem_layout.addLayout(mem_header)
         mem_layout.addWidget(self.mem_table)
 
-        mem_panel_wrapped = self._wrap_panel("Memory", mem_panel)
+        mem_panel_wrapped = self._wrap_panel("Data Memory", mem_panel)
 
         splitter.addWidget(editor_panel)
         splitter.addWidget(reg_panel)
@@ -817,6 +852,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         entries.update({mnem: "FUNCTION" for mnem in RR_OPCODES})
         entries.update({mnem: "CONTROL" for mnem in GEN_OPCODES})
         entries.update({mnem: "IMMEDIATE" for mnem in IMM_OPCODES})
+        entries.update({mnem: "MEMORY" for mnem in MEM_OPCODES})
         entries.update({mnem: "JUMP" for mnem in JUMP_OPCODES})
         entries.update({name: "REGISTER" for name in REG_NAMES})
         self._base_completion_entries = entries
@@ -918,7 +954,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             operands = self._parse_operands_from_line(op_text)
 
             if mnem in RR_OPCODES:
-                unary_rr = {"NOT", "SHL", "SHR", "SAR"}
+                unary_rr = {"NOT"}
                 expected = 1 if mnem in unary_rr else 2
                 if len(operands) != expected:
                     errors[line_no] = f"{mnem} expects {expected} register{'s' if expected == 2 else ''}"
@@ -938,15 +974,11 @@ class AssemblerWindow(QtWidgets.QMainWindow):
                 continue
 
             if mnem in IMM_OPCODES:
-                if len(operands) != 2:
-                    errors[line_no] = f"{mnem} expects register and immediate"
+                if len(operands) != 1:
+                    errors[line_no] = f"{mnem} expects an imm8 operand"
                     spans[line_no] = self._find_token_span(line, mnem)
                     continue
-                ra, imm = operands
-                if not self._is_register_token(ra):
-                    errors[line_no] = f"Unknown register '{ra}'"
-                    spans[line_no] = self._find_token_span(line, ra)
-                    continue
+                imm = operands[0]
                 try:
                     imm_val = parse_number(imm)
                 except Exception:
@@ -958,6 +990,18 @@ class AssemblerWindow(QtWidgets.QMainWindow):
                     spans[line_no] = self._find_token_span(line, imm)
                 continue
 
+            if mnem in MEM_OPCODES:
+                if len(operands) != 2:
+                    errors[line_no] = f"{mnem} expects 2 registers"
+                    spans[line_no] = self._find_token_span(line, mnem)
+                    continue
+                bad_reg = next((op for op in operands if not self._is_register_token(op)), None)
+                if bad_reg:
+                    errors[line_no] = f"Unknown register '{bad_reg}'"
+                    spans[line_no] = self._find_token_span(line, bad_reg)
+                    continue
+                continue
+
             if mnem in JUMP_OPCODES:
                 if len(operands) != 1:
                     errors[line_no] = f"{mnem} expects an immediate or label"
@@ -966,7 +1010,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
                 jump_arg = operands[0]
                 try:
                     imm_val = parse_number(jump_arg)
-                    if not (-1024 <= imm_val <= 1023):
+                    if not (-128 <= imm_val <= 127):
                         errors[line_no] = f"Jump offset out of range: {imm_val}"
                         spans[line_no] = self._find_token_span(line, jump_arg)
                 except Exception:
@@ -1134,9 +1178,6 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         rr_syntax.update(
             {
                 "NOT": "NOT Ra",
-                "SHL": "SHL Ra",
-                "SHR": "SHR Ra",
-                "SAR": "SAR Ra",
             }
         )
         rr_notes = {
@@ -1144,9 +1185,9 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             "OR": "Ra = Ra | Rb",
             "AND": "Ra = Ra & Rb",
             "XOR": "Ra = Ra ^ Rb",
-            "SHL": "Ra = Ra << SHC",
-            "SHR": "Ra = Ra >> SHC",
-            "SAR": "Ra = arithmetic_shift_right(Ra, SHC)",
+            "SHL": "Ra = Ra << Rb",
+            "SHR": "Ra = Ra >> Rb",
+            "SAR": "Ra = arithmetic_shift_right(Ra, Rb)",
             "ADD": "Ra = Ra + Rb",
             "SUB": "Ra = Ra - Rb",
             "MOV": "Ra = Rb",
@@ -1160,28 +1201,38 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         gen_rows = [(mnem, mnem, gen_notes.get(mnem, "No operands")) for mnem in GEN_OPCODES]
 
         imm_syntax = {
-            "LIL": "LIL Ra, imm8",
-            "LIH": "LIH Ra, imm8",
-            "LOAD": "LOAD Ra, imm8",
-            "STOR": "STOR Ra, imm8",
+            "LIL": "LIL imm8",
+            "LIH": "LIH imm8",
+            "LILL": "LILL imm8",
+            "LIHH": "LIHH imm8",
         }
         imm_notes = {
-            "LIL": "Set bits 7..0 of Ra to imm8",
-            "LIH": "Set bits 15..8 of Ra to imm8",
-            "LOAD": "Ra = MEM[imm8 + MEMOFF] (28-bit word)",
-            "STOR": "MEM[imm8 + MEMOFF] = Ra (28-bit word)",
+            "LIL": "Set bits 7..0 of IMR to imm8",
+            "LIH": "Set bits 15..8 of IMR to imm8",
+            "LILL": "Set bits 23..16 of IMR to imm8",
+            "LIHH": "Set bits 27..24 of IMR to imm8[3:0]",
         }
         imm_rows = [
             (mnem, imm_syntax.get(mnem, mnem), imm_notes.get(mnem, ""))
             for mnem in IMM_OPCODES
         ]
 
-        jump_syntax = {mnem: f"{mnem} imm11" for mnem in JUMP_OPCODES}
+        mem_syntax = {mnem: f"{mnem} Ra, Rb" for mnem in MEM_OPCODES}
+        mem_notes = {
+            "LOAD": "Ra = DMEM[Rb + MEMOFF] (28-bit word)",
+            "STOR": "DMEM[Rb + MEMOFF] = Ra (28-bit word)",
+        }
+        mem_rows = [
+            (mnem, mem_syntax.get(mnem, mnem), mem_notes.get(mnem, ""))
+            for mnem in MEM_OPCODES
+        ]
+
+        jump_syntax = {mnem: f"{mnem} imm8" for mnem in JUMP_OPCODES}
         jump_notes = {
-            "JMP": "PC += (imm11 << 1)",
-            "JMPL": "PC += (imm11 << 1) + JMPOFF",
-            "JPEQ": "If CMPA == CMPB, PC += (imm11 << 1) + JMPOFF",
-            "JPBLW": "If CMPA < CMPB (unsigned), PC += (imm11 << 1) + JMPOFF",
+            "JMP": "IC += imm8 << 1",
+            "JMPL": "IC += (imm8 + JMPOFF) << 1",
+            "JPEQ": "If CMPA == CMPB, do JMPL",
+            "JPBLW": "If CMPA < CMPB (unsigned for now), do JMPL",
         }
         jump_rows = [
             (mnem, jump_syntax.get(mnem, mnem), jump_notes.get(mnem, ""))
@@ -1202,26 +1253,29 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         </ul>
         <h4>Registers</h4>
         <p>General: R0-R7.</p>
-        <p>Special: IC, SP, LC, SHC, JMPOFF, MEMOFF, CMPA, CMPB.</p>
+        <p>Special: IC, SP, LC, IMR, JMPOFF, MEMOFF, CMPA, CMPB.</p>
         <p>Full register list (case-insensitive): {reg_names}</p>
         <h4>Encoding Forms</h4>
         <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
-RR:  opcode7 | Ra | Rb
-GEN: opcode7 only
-IMM: opcode3 | Ra | imm8
-JMP: opcode4 | imm11
+RR/MEM: opcode7 | Rb | Ra
+GEN:    opcode7 only
+IMM:    opcode7 | imm8
+JMP:    opcode7 | imm8
         </div>
         <h4>Register-to-Register (RR)</h4>
-        <p>Format: <code>MNEMONIC Ra, Rb</code>. If only one register is provided, the assembler uses <code>Rb = Ra</code>.</p>
+        <p>Format: <code>MNEMONIC Ra, Rb</code>. <code>Ra</code> is destination, <code>Rb</code> is source. <code>NOT</code> is unary.</p>
         {build_table(rr_rows)}
         <h4>General (GEN)</h4>
         {build_table(gen_rows)}
         <h4>Immediate (IMM)</h4>
-        <p><code>imm8</code> accepts -128..255 and is encoded as 8 bits. Labels are not allowed for IMM.</p>
+        <p><code>imm8</code> accepts -128..255 and is encoded as 8 bits. Immediate loads write <code>IMR</code>; labels are not allowed.</p>
         {build_table(imm_rows)}
+        <h4>Memory (MEM)</h4>
+        <p>Instruction memory and data memory are modeled separately. The memory table shows data memory.</p>
+        {build_table(mem_rows)}
         <h4>Jump (JMP)</h4>
-        <p><code>imm11</code> accepts -1024..1023 (word offset). Labels are allowed and resolve to a PC-relative offset; labels must be 2-byte aligned.</p>
-        <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>.</p>
+        <p><code>imm8</code> accepts -128..127 (word offset). Labels are allowed and resolve to a PC-relative offset; labels must be 2-byte aligned.</p>
+        <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>. <code>JPBLW</code> is modeled unsigned until the RTL signedness TODO is resolved.</p>
         {build_table(jump_rows)}
         <h4>Labels & Comments</h4>
         <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
@@ -1816,7 +1870,7 @@ Comments: // ; #
         self.mem_table.setRowCount(count)
         for i in range(count):
             addr = (start + i) & ADDR_MASK
-            val = self.cpu.memory.read_byte(addr)
+            val = self.cpu.dmem.read_byte(addr)
             highlight = addr in self._last_mem_changes
             addr_item = QtWidgets.QTableWidgetItem(f"0x{addr:07X}")
             val_item = QtWidgets.QTableWidgetItem(f"0x{val:02X}")

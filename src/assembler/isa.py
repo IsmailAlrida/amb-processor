@@ -8,7 +8,6 @@ WORD_BYTES = 4
 ADDR_BITS = 28
 REG_BITS = 4
 IMM8_BITS = 8
-IMM11_BITS = 11
 
 ADDR_MASK = (1 << ADDR_BITS) - 1
 WORD_MASK = (1 << WORD_BITS) - 1
@@ -25,7 +24,7 @@ REG_NAMES = [
     "IC",
     "SP",
     "LC",
-    "SHC",
+    "IMR",
     "JMPOFF",
     "MEMOFF",
     "CMPA",
@@ -36,7 +35,7 @@ REG_ALIASES = {
     "IC": 8,
     "SP": 9,
     "LC": 10,
-    "SHC": 11,
+    "IMR": 11,
     "JMPOFF": 12,
     "MEMOFF": 13,
     "CMPA": 14,
@@ -46,7 +45,7 @@ REG_ALIASES = {
 REG_IC = 8
 REG_SP = 9
 REG_LC = 10
-REG_SHC = 11
+REG_IMR = 11
 REG_JMPOFF = 12
 REG_MEMOFF = 13
 REG_CMPA = 14
@@ -70,31 +69,32 @@ GEN_OPCODES = {
     "NOP": 0b0000001,
 }
 
-JUMP_OPCODES = {
-    "JMP": 0b0100,
-    "JMPL": 0b0101,
-    "JPEQ": 0b0110,
-    "JPBLW": 0b0111,
+IMM_OPCODES = {
+    "LIL": 0b0011010,
+    "LIH": 0b0011011,
+    "LILL": 0b0011100,
+    "LIHH": 0b0011101,
 }
 
-IMM_OPCODES = {
-    "LIL": 0b100,
-    "LIH": 0b101,
-    "LOAD": 0b110,
-    "STOR": 0b111,
+MEM_OPCODES = {
+    "LOAD": 0b0011110,
+    "STOR": 0b0011111,
+}
+
+JUMP_OPCODES = {
+    "JMP": 0b1000000,
+    "JMPL": 0b1000001,
+    "JPEQ": 0b1000010,
+    "JPBLW": 0b1000011,
 }
 
 
 def encode_rr(opcode7: int, ra: int, rb: int) -> int:
-    return ((opcode7 & 0x7F) << 8) | ((ra & 0xF) << 4) | (rb & 0xF)
+    return ((opcode7 & 0x7F) << 8) | ((rb & 0xF) << 4) | (ra & 0xF)
 
 
-def encode_jump(opcode4: int, imm11: int) -> int:
-    return ((opcode4 & 0xF) << 11) | (imm11 & 0x7FF)
-
-
-def encode_imm(opcode3: int, ra: int, imm8: int) -> int:
-    return ((opcode3 & 0x7) << 12) | ((ra & 0xF) << 8) | (imm8 & 0xFF)
+def encode_imm8(opcode7: int, imm8: int) -> int:
+    return ((opcode7 & 0x7F) << 8) | (imm8 & 0xFF)
 
 
 def sign_extend(value: int, bits: int) -> int:

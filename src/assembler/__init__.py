@@ -1,8 +1,12 @@
 """AMB Assembler Simulator package."""
 
-from .app import main
+__all__ = ["main", "run"]
 
-__all__ = ["main"]
+
+def main() -> None:
+    from .app import main as app_main
+
+    app_main()
 
 
 def run() -> None:

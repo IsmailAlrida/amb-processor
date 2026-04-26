@@ -13,12 +13,6 @@ files:
     include_path: ""
     logical_name: ""
 
-  - name: "processor/immediate_unit.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
   - name: "processor/reg_file.v"
     file_type: "verilogSource-2005"
     is_include_file: false
@@ -43,47 +37,6 @@ files:
     include_path: ""
     logical_name: ""
 
-  - name: "components/adjacent_ops.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
-  - name: "components/bcd_adder.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
-  - name: "components/comparator.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
-  - name: "components/full_adder.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
-  - name: "components/pipe_reg.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
-  - name: "components/popcount.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
-
-  - name: "components/ripple_adder.v"
-    file_type: "verilogSource-2005"
-    is_include_file: false
-    include_path: ""
-    logical_name: ""
 
 tool_options:
   icarus:
