@@ -22,6 +22,12 @@ venv/
 htmlcov/
 .tox/
 
+# Repo-local external tool installs
+tools/oss-cad-suite/*/oss-cad-suite/
+tools/oss-cad-suite/**/*.tgz
+tools/oss-cad-suite/**/*.zip
+tools/oss-cad-suite/**/*.tar.gz
+
 # IDE/editor
 .idea/
 .vscode/
