@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import importlib.util
 import re
+import subprocess
 import sys
 import textwrap
 import traceback
@@ -12,12 +14,18 @@ from pathlib import Path
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
+try:
+    from PyQt6 import QtWebEngineWidgets
+except Exception:  # pragma: no cover - optional runtime dependency fallback
+    QtWebEngineWidgets = None
+
 if __package__ in (None, ""):
     pkg_root = Path(__file__).resolve().parents[1]
     if str(pkg_root) not in sys.path:
         sys.path.insert(0, str(pkg_root))
     from assembler.assembler import AsmError, assemble, parse_number
     from assembler.cpu import CPU
+    from assembler.resources import bundled_oss_root, docs_index_path, resource_path, rtl_run_root, rtl_runner_path
     from assembler.isa import (
         ADDR_MASK,
         GEN_OPCODES,
@@ -31,6 +39,7 @@ if __package__ in (None, ""):
 else:
     from .assembler import AsmError, assemble, parse_number
     from .cpu import CPU
+    from .resources import bundled_oss_root, docs_index_path, resource_path, rtl_run_root, rtl_runner_path
     from .isa import (
         ADDR_MASK,
         GEN_OPCODES,
@@ -165,6 +174,71 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         MOV R0, IMR
         HLT
     """
+    ),
+    (
+        "Array Sum Benchmark",
+        """\
+        // Assignment benchmark:
+        // N = 5
+        // ARRAY = [3, 7, 2, 9, 4]
+        // Expected RESULT = 25
+        //
+        // Data memory layout:
+        // LEN    = 0x0100
+        // ARRAY  = 0x0104
+        // RESULT = 0x0200
+        //
+        // R0 = sum
+        // R1 = LEN pointer
+        // R2 = len
+        // R3 = index
+        // R4 = 1
+        // R5 = 4-byte word stride
+        // R6 = array/result pointer
+        // R7 = current element
+
+        LIL 0x00
+        LIH 0x01
+        MOV R1, IMR
+        LOAD R2, R1
+
+        LIL 0x00
+        LIH 0x00
+        MOV R0, IMR
+        MOV R3, IMR
+
+        LIL 0x01
+        LIH 0x00
+        MOV R4, IMR
+
+        LIL 0x04
+        LIH 0x00
+        MOV R5, IMR
+
+        LIL 0x04
+        LIH 0x01
+        MOV R6, IMR
+
+        loop:
+        MOV CMPA, R3
+        MOV CMPB, R2
+        JPBLW body
+        JMP done
+
+        body:
+        LOAD R7, R6
+        ADD R0, R7
+        ADD R6, R5
+        ADD R3, R4
+        JMP loop
+
+        done:
+        LIL 0x00
+        LIH 0x02
+        MOV R6, IMR
+        STOR R0, R6
+        HLT
+        """,
     )
 ]
 
@@ -738,6 +812,9 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.program = None
         self.addr_to_line = {}
         self.current_file: str | None = None
+        self.current_sample_name: str | None = None
+        self.last_rtl_result: dict[str, object] | None = None
+        self.docs_window: QtWidgets.QWidget | None = None
         self._last_reg_changes: set[int] = set()
         self._last_mem_changes: set[int] = set()
         self._highlight_bg = QtGui.QBrush(QtGui.QColor("#00ff6a"))
@@ -830,7 +907,14 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 2)
 
-        self.setCentralWidget(splitter)
+        central = QtWidgets.QWidget()
+        central_layout = QtWidgets.QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.toolbar_scroll)
+        central_layout.addWidget(splitter, 1)
+
+        self.setCentralWidget(central)
         self.setStatusBar(QtWidgets.QStatusBar())
         self.statusBar().setSizeGripEnabled(True)
         self._install_resize_filters()
@@ -1062,51 +1146,79 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             self.editor.set_lint_errors({}, {})
 
     def _build_toolbar(self) -> None:
-        toolbar = QtWidgets.QToolBar("Main")
-        toolbar.setObjectName("mainToolbar")
-        toolbar.setMovable(False)
-        toolbar.setFloatable(False)
-        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.addToolBar(toolbar)
+        self.toolbar_scroll = QtWidgets.QScrollArea(self)
+        self.toolbar_scroll.setObjectName("mainToolbarScroll")
+        self.toolbar_scroll.setWidgetResizable(False)
+        self.toolbar_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self.toolbar_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.toolbar_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.toolbar_scroll.viewport().installEventFilter(self)
 
-        def add_action(label: str, slot) -> None:
-            action = QtGui.QAction(label, self)
-            action.triggered.connect(slot)
-            toolbar.addAction(action)
+        strip = QtWidgets.QWidget()
+        strip.setObjectName("mainToolbarStrip")
+        strip.installEventFilter(self)
+        layout = QtWidgets.QHBoxLayout(strip)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(6)
 
-        add_action("New", self.new_file)
-        add_action("Open", self.open_file)
-        add_action("Save", self.save_file)
-        add_action("Save As", self.save_file_as)
+        def add_button(label: str, slot) -> None:
+            button = QtWidgets.QPushButton(label, strip)
+            button.setObjectName("toolbarButton")
+            button.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
+            button.installEventFilter(self)
+            button.clicked.connect(slot)
+            layout.addWidget(button)
 
-        toolbar.addSeparator()
-        # sample_label = QtWidgets.QLabel("Samples")
-        # sample_label.setObjectName("sampleCodesLabel")
-        # sample_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignVCenter)
-        # toolbar.addWidget(sample_label)
+        def add_separator() -> None:
+            separator = QtWidgets.QFrame(strip)
+            separator.setObjectName("toolbarSeparator")
+            separator.setFrameShape(QtWidgets.QFrame.Shape.VLine)
+            separator.setFixedHeight(26)
+            separator.installEventFilter(self)
+            layout.addWidget(separator)
+
+        add_button("New", self.new_file)
+        add_button("Open", self.open_file)
+        add_button("Save", self.save_file)
+        add_button("Save As", self.save_file_as)
+
+        add_separator()
 
         self.sample_codes_combo = QtWidgets.QComboBox(self)
         self.sample_codes_combo.setObjectName("sampleCodesCombo")
         self.sample_codes_combo.setMinimumWidth(170)
+        self.sample_codes_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.sample_codes_combo.setMaxVisibleItems(12)
         self.sample_codes_combo.setSizeAdjustPolicy(
             QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContentsOnFirstShow
         )
+        self.sample_codes_combo.installEventFilter(self)
         self.sample_codes_combo.addItem(" Sample Code")
         for sample_name in SAMPLE_CODES:
             self.sample_codes_combo.addItem(sample_name)
         self.sample_codes_combo.activated.connect(self.load_sample_code)
-        toolbar.addWidget(self.sample_codes_combo)
-        toolbar.addSeparator()
+        layout.addWidget(self.sample_codes_combo)
+        add_separator()
 
-        add_action("Assemble", self.assemble_source)
-        add_action("Step", self.step)
-        add_action("Run", self.run)
-        add_action("Stop", self.stop)
-        add_action("Reset", self.reset_cpu)
-        toolbar.addSeparator()
-        add_action("Authors", self.show_authors)
-        add_action("Help", self.show_help)
+        add_button("Assemble", self.assemble_source)
+        add_button("Step", self.step)
+        add_button("Run", self.run)
+        add_button("Stop", self.stop)
+        add_button("Reset", self.reset_cpu)
+        add_separator()
+        add_button("CPU Docs", self.open_cpu_docs)
+        add_button("Run RTL Sim", self.run_rtl_sim)
+        add_button("Open Waveform", self.open_latest_waveform)
+        add_button("Open RTL Report", self.open_latest_rtl_report)
+        add_separator()
+        add_button("Authors", self.show_authors)
+        add_button("Help", self.show_help)
+        layout.addStretch(1)
+
+        strip.adjustSize()
+        strip.setMinimumWidth(strip.sizeHint().width())
+        self.toolbar_scroll.setWidget(strip)
+        self.toolbar_scroll.setFixedHeight(strip.sizeHint().height() + 18)
 
     def _build_titlebar(self) -> None:
         self.title_bar = TitleBar(self)
@@ -1207,10 +1319,10 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             "LIHH": "LIHH imm8",
         }
         imm_notes = {
-            "LIL": "Set bits 7..0 of IMR to imm8",
-            "LIH": "Set bits 15..8 of IMR to imm8",
-            "LILL": "Set bits 23..16 of IMR to imm8",
-            "LIHH": "Set bits 27..24 of IMR to imm8[3:0]",
+            "LIL": "Set IMR[7:0] to imm8",
+            "LIH": "Set IMR[15:8] to imm8",
+            "LILL": "Set IMR[23:16] to imm8",
+            "LIHH": "Set IMR[27:24] to imm8[3:0]",
         }
         imm_rows = [
             (mnem, imm_syntax.get(mnem, mnem), imm_notes.get(mnem, ""))
@@ -1219,8 +1331,8 @@ class AssemblerWindow(QtWidgets.QMainWindow):
 
         mem_syntax = {mnem: f"{mnem} Ra, Rb" for mnem in MEM_OPCODES}
         mem_notes = {
-            "LOAD": "Ra = DMEM[Rb + MEMOFF] (28-bit word)",
-            "STOR": "DMEM[Rb + MEMOFF] = Ra (28-bit word)",
+            "LOAD": "Ra = DMEM[Rb + MEMOFF], byte address, 28-bit little-endian word",
+            "STOR": "DMEM[Rb + MEMOFF] = Ra, byte address, 28-bit little-endian word",
         }
         mem_rows = [
             (mnem, mem_syntax.get(mnem, mnem), mem_notes.get(mnem, ""))
@@ -1229,8 +1341,8 @@ class AssemblerWindow(QtWidgets.QMainWindow):
 
         jump_syntax = {mnem: f"{mnem} imm8" for mnem in JUMP_OPCODES}
         jump_notes = {
-            "JMP": "IC += imm8 << 1",
-            "JMPL": "IC += (imm8 + JMPOFF) << 1",
+            "JMP": "IC += signed imm8 word offset",
+            "JMPL": "IC += signed (imm8 + JMPOFF) word offset",
             "JPEQ": "If CMPA == CMPB, do JMPL",
             "JPBLW": "If CMPA < CMPB (unsigned for now), do JMPL",
         }
@@ -1239,21 +1351,36 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             for mnem in JUMP_OPCODES
         ]
 
+        toolbar_rows = [
+            ("Assemble", "Current editor", "Parse the source and load the simulator instruction memory."),
+            ("Step", "One instruction", "Execute one simulator instruction and highlight changed state."),
+            ("Run", "Timed stepping", "Run the Python simulator until Stop or HLT."),
+            ("Stop", "Timed stepping", "Stop the Python simulator timer without resetting state."),
+            ("Reset", "Simulator state", "Reset registers and reload the assembled program."),
+            ("CPU Docs", "Local docs", "Open the bundled documentation app and SVG explorer."),
+            ("Run RTL Sim", "Verilog testbench", "Export program.hex, run the RTL bench, and generate report/wave files."),
+            ("Open Waveform", "Latest VCD/FST", "Open the latest RTL waveform with the bundled OSS CAD Suite viewer."),
+            ("Open RTL Report", "Latest HTML report", "Open the latest generated RTL simulation report."),
+            ("Sample Code", "Samples", "Load a predefined .ambasm example; the array-sum benchmark selects its matching RTL data image."),
+        ]
+
         reg_names = ", ".join(REG_NAMES)
 
         return textwrap.dedent(
             f"""
         <div style="font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11px; line-height: 1.35;">
-        <h3>Instruction Set Reference</h3>
+        <h3>AMB ISA v1 Quick Reference</h3>
         <ul>
             <li>Instruction width: 15 bits (stored in 2 bytes, 1 unused bit)</li>
             <li>Word size: 28 bits</li>
             <li>Address width: 28 bits (byte-addressable)</li>
             <li>PC/IC increments by 2 after each instruction fetch</li>
+            <li>Assembly syntax is <code>OP Ra, Rb</code>: <code>Ra</code> is destination and <code>Rb</code> is source.</li>
+            <li>RTL simulation uses split instruction memory (<code>imem</code>) and byte-addressed data memory (<code>dmem</code>).</li>
         </ul>
         <h4>Registers</h4>
         <p>General: R0-R7.</p>
-        <p>Special: IC, SP, LC, IMR, JMPOFF, MEMOFF, CMPA, CMPB.</p>
+        <p>Special: IC, SP, LC, IMR, JMPOFF, MEMOFF, CMPA, CMPB. <code>IMR</code> is the multi-step immediate assembly register.</p>
         <p>Full register list (case-insensitive): {reg_names}</p>
         <h4>Encoding Forms</h4>
         <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
@@ -1271,12 +1398,15 @@ JMP:    opcode7 | imm8
         <p><code>imm8</code> accepts -128..255 and is encoded as 8 bits. Immediate loads write <code>IMR</code>; labels are not allowed.</p>
         {build_table(imm_rows)}
         <h4>Memory (MEM)</h4>
-        <p>Instruction memory and data memory are modeled separately. The memory table shows data memory.</p>
+        <p>Instruction memory and data memory are split. Program loading writes instruction memory; <code>LOAD</code> and <code>STOR</code> use byte-addressed data memory at <code>Rb + MEMOFF</code>. Store data comes from <code>Ra</code>.</p>
         {build_table(mem_rows)}
         <h4>Jump (JMP)</h4>
         <p><code>imm8</code> accepts -128..127 (word offset). Labels are allowed and resolve to a PC-relative offset; labels must be 2-byte aligned.</p>
         <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>. <code>JPBLW</code> is modeled unsigned until the RTL signedness TODO is resolved.</p>
         {build_table(jump_rows)}
+        <h4>Toolbar Buttons</h4>
+        <p>The top strip scrolls horizontally when the window is narrow. Use the sample dropdown to load ready-to-run examples; the array-sum benchmark also selects the matching RTL data image. RTL reports are written under <code>build/rtl_sim/...</code> in dev and app-data output directories when packaged.</p>
+        {build_table(toolbar_rows)}
         <h4>Labels & Comments</h4>
         <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
 label: ADD R0, R1
@@ -1353,25 +1483,29 @@ Comments: // ; #
                 color: #3f8f67; border-color: #2a6d4a; background: #062010;
             }
 
-            QToolBar#mainToolbar {
+            QScrollArea#mainToolbarScroll {
                 background: #062311;
                 border: 1px solid #39f5a7;
                 margin: 5px 8px 3px 8px;
-                spacing: 3px;
-                padding: 5px 8px;
             }
-            QToolBar#mainToolbar QToolButton {
+            QScrollArea#mainToolbarScroll QWidget#qt_scrollarea_viewport {
+                background: #062311;
+            }
+            QWidget#mainToolbarStrip {
+                background: #062311;
+            }
+            QPushButton#toolbarButton {
                 min-height: 26px;
                 padding: 4px 12px;
                 background: #052312;
                 color: #defff0;
                 border: 1px solid #19d17d;
             }
-            QToolBar#mainToolbar QToolButton:hover {
+            QPushButton#toolbarButton:hover {
                 background: #08311b;
                 border: 1px solid #2ee792;
             }
-            QToolBar#mainToolbar QToolButton:pressed {
+            QPushButton#toolbarButton:pressed {
                 background: #0f5732;
                 color: #f2fff9;
                 border: 1px solid #54f5ab;
@@ -1380,7 +1514,7 @@ Comments: // ; #
                 padding-bottom: 3px;
                 padding-right: 11px;
             }
-            QToolBar#mainToolbar::separator { background: #2ad88b; width: 1px; margin: 2px 8px; }
+            QFrame#toolbarSeparator { background: #2ad88b; width: 1px; margin: 2px 8px; }
             QLabel#sampleCodesLabel {
                 color: #d6ffed;
                 font-weight: 700;
@@ -1493,9 +1627,144 @@ Comments: // ; #
             """
         )
 
+    def _open_local_html(self, path: Path, title: str) -> None:
+        path = path.resolve()
+        if not path.exists():
+            self.statusBar().showMessage(f"Missing file: {path}", 5000)
+            return
+        if QtWebEngineWidgets is None:
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
+            return
+
+        window = QtWidgets.QMainWindow(self)
+        window.setWindowTitle(title)
+        window.resize(1200, 800)
+        view = QtWebEngineWidgets.QWebEngineView(window)
+        view.setUrl(QtCore.QUrl.fromLocalFile(str(path)))
+        window.setCentralWidget(view)
+        window.show()
+        self.docs_window = window
+
+    def open_cpu_docs(self) -> None:
+        self._open_local_html(docs_index_path(), "AMB CPU Documentation")
+
+    def _load_rtl_runner(self):
+        runner_path = rtl_runner_path()
+        if not runner_path.exists():
+            raise FileNotFoundError(f"RTL runner not found: {runner_path}")
+        spec = importlib.util.spec_from_file_location("amb_rtl_runner", runner_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load RTL runner: {runner_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def _write_program_hex(words: list[int], path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            for word in words:
+                handle.write(f"{(word >> 8) & 0xFF:02x}\n")
+                handle.write(f"{word & 0xFF:02x}\n")
+
+    @staticmethod
+    def _write_default_data_hex(path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("@0000\n00\n@0200\n00\n00\n00\n00\n", encoding="utf-8")
+
+    def _select_rtl_data_hex(self, out_dir: Path) -> tuple[Path, str, str]:
+        if self.current_sample_name == "Array Sum Benchmark":
+            benchmark_data = resource_path("src", "rtl", "testbench", "array_sum_data.hex")
+            if benchmark_data.exists():
+                return benchmark_data, "1", "25"
+
+        data_hex = out_dir / "data.hex"
+        self._write_default_data_hex(data_hex)
+        return data_hex, "0", "25"
+
+    def run_rtl_sim(self) -> None:
+        if not self.program:
+            self.assemble_source()
+            if not self.program:
+                return
+
+        try:
+            runner = self._load_rtl_runner()
+            out_dir = rtl_run_root() / "gui_current"
+            program_hex = out_dir / "program.hex"
+            self._write_program_hex(self.program.words, program_hex)
+            data_hex, check_result, expected = self._select_rtl_data_hex(out_dir)
+
+            oss_root = bundled_oss_root()
+            result = runner.run_simulation(
+                run_name="gui_current",
+                program=program_hex,
+                data=data_hex,
+                out_dir=out_dir,
+                oss_root=oss_root if oss_root.exists() else None,
+                check_result=check_result,
+                expected=expected,
+                schematic=True,
+            )
+            self.last_rtl_result = result
+            html_path = Path(str(result.get("html", "")))
+            self.statusBar().showMessage(f"RTL sim exited {result.get('returncode')}", 5000)
+            if html_path.exists():
+                self._open_local_html(html_path, "AMB RTL Simulation Report")
+        except Exception as exc:
+            self._log_nonfatal("run_rtl_sim", exc)
+            self.statusBar().showMessage(f"RTL sim failed: {exc}", 8000)
+
+    def _latest_artifact(self, *keys: str) -> Path | None:
+        if not self.last_rtl_result:
+            candidate = rtl_run_root() / "gui_current" / "summary.json"
+            if candidate.exists():
+                try:
+                    import json
+
+                    self.last_rtl_result = json.loads(candidate.read_text(encoding="utf-8"))
+                except Exception:
+                    self.last_rtl_result = None
+        if not self.last_rtl_result:
+            return None
+        for key in keys:
+            value = self.last_rtl_result.get(key)
+            if value:
+                path = Path(str(value))
+                if path.exists():
+                    return path
+        return None
+
+    def open_latest_rtl_report(self) -> None:
+        html_path = self._latest_artifact("html")
+        if html_path is None:
+            self.statusBar().showMessage("No RTL report yet. Run RTL Sim first.", 5000)
+            return
+        self._open_local_html(html_path, "AMB RTL Simulation Report")
+
+    def open_latest_waveform(self) -> None:
+        wave_path = self._latest_artifact("fst", "vcd")
+        if wave_path is None:
+            self.statusBar().showMessage("No waveform yet. Run RTL Sim first.", 5000)
+            return
+        try:
+            runner = self._load_rtl_runner()
+            oss_root = bundled_oss_root()
+            oss_root_arg = oss_root if oss_root.exists() else None
+            viewer = runner.tool_path("surfer", oss_root_arg)
+            if viewer == "surfer":
+                viewer = runner.tool_path("gtkwave", oss_root_arg)
+            cmd, use_shell = runner.command_for_tool(viewer, [str(wave_path)], oss_root_arg)
+            subprocess.Popen(cmd, shell=use_shell)
+            self.statusBar().showMessage(f"Opened waveform: {wave_path}", 3000)
+        except Exception as exc:
+            self._log_nonfatal("open_latest_waveform", exc)
+            self.statusBar().showMessage(f"Could not open waveform: {exc}", 8000)
+
     def new_file(self) -> None:
         self.editor.clear()
         self.current_file = None
+        self.current_sample_name = None
         self.statusBar().showMessage("New file", 2000)
 
     def load_sample_code(self, index: int) -> None:
@@ -1509,6 +1778,7 @@ Comments: // ; #
             self.timer.stop()
         self.editor.setPlainText(sample_source.strip() + "\n")
         self.current_file = None
+        self.current_sample_name = sample_name
         self.program = None
         self.addr_to_line = {}
         self.cpu.reset()
@@ -1533,6 +1803,7 @@ Comments: // ; #
         with open(path, "r", encoding="utf-8") as handle:
             self.editor.setPlainText(handle.read())
         self.current_file = path
+        self.current_sample_name = None
         self.statusBar().showMessage(f"Opened {path}", 3000)
 
     def save_file(self) -> None:
@@ -1647,6 +1918,30 @@ Comments: // ; #
         self.setGeometry(x, y, w, h)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if (
+            hasattr(self, "toolbar_scroll")
+            and isinstance(obj, QtWidgets.QWidget)
+            and event.type() == QtCore.QEvent.Type.Wheel
+            and (
+                obj is self.toolbar_scroll
+                or obj is self.toolbar_scroll.viewport()
+                or self.toolbar_scroll.isAncestorOf(obj)
+            )
+        ):
+            wheel_event = event
+            pixel_delta = wheel_event.pixelDelta()
+            angle_delta = wheel_event.angleDelta()
+            delta = (
+                pixel_delta.x()
+                or pixel_delta.y()
+                or angle_delta.x()
+                or angle_delta.y()
+            )
+            bar = self.toolbar_scroll.horizontalScrollBar()
+            bar.setValue(bar.value() - delta)
+            wheel_event.accept()
+            return True
+
         if isinstance(event, QtGui.QMouseEvent):
             if event.type() == QtCore.QEvent.Type.MouseMove:
                 if self._resizing:
@@ -2054,8 +2349,8 @@ def main() -> None:
     except Exception:
         pass
 
-    app = QtWidgets.QApplication([])
-    icon_path = Path(__file__).resolve().parents[2] / "assets" / "amb.ico"
+    app = QtWidgets.QApplication(sys.argv)
+    icon_path = resource_path("assets", "amb.ico")
     icon = QtGui.QIcon(str(icon_path))
     app.setWindowIcon(icon)
     app_palette = app.palette()

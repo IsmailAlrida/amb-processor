@@ -24,15 +24,60 @@ module cpu_tb;
   wire DmemReadEn;
   wire DmemWriteEn;
 
+  // Waveform-facing aliases. These do not change the CPU contract; they just
+  // put the important CPU datapath/control probes at the cpu_tb scope.
+  wire debug_halt;
+  wire [INSTRUCTION_ADDRESS_SPACE-1:0] debug_IC;
+  wire [INSTRUCTION_WIDTH-1:0] debug_instr;
+  wire [6:0] debug_opcode;
+  wire [DATA_ADDR_SPACE-1:0] debug_DataAddress;
+  wire [DATA_WORD_WIDTH-1:0] debug_DataMemoryWrite;
+  wire [DATA_WORD_WIDTH-1:0] debug_DataMemoryRead;
+  wire debug_DmemReadEn;
+  wire debug_DmemWriteEn;
+  wire debug_RegWrite;
+  wire [1:0] debug_RegDest;
+  wire debug_MemOp;
+  wire debug_BranchEqual;
+  wire debug_BranchLt;
+  wire debug_isJump;
+  wire debug_LongJump;
+  wire debug_isImmLoad;
+  wire [3:0] debug_ALUCtrl;
+  wire [1:0] debug_ImmSel;
+  wire [2:0] debug_CMPType;
+  wire [3:0] debug_ReadRegRa;
+  wire [3:0] debug_ReadRegRb;
+  wire [3:0] debug_WriteReg;
+  wire [DATA_WORD_WIDTH-1:0] debug_ReadDataRa;
+  wire [DATA_WORD_WIDTH-1:0] debug_ReadDataRb;
+  wire [DATA_WORD_WIDTH-1:0] debug_OperandA;
+  wire [DATA_WORD_WIDTH-1:0] debug_OperandB;
+  wire [DATA_WORD_WIDTH-1:0] debug_ALURes;
+  wire debug_zero;
+  wire debug_altb;
+  wire [DATA_WORD_WIDTH-1:0] debug_RegDataWrite;
+  wire debug_WillBranch;
+  wire [INSTRUCTION_ADDRESS_SPACE-1:0] debug_NextIC;
+
   integer cycle_count;
   integer max_cycles;
   integer report_fd;
   integer pass;
+  integer check_result;
   reg [DATA_ADDR_SPACE-1:0] result_addr;
   reg [DATA_WORD_WIDTH-1:0] expected;
   reg [DATA_WORD_WIDTH-1:0] actual;
+  reg [DATA_WORD_WIDTH-1:0] live_result;
+  reg actual_valid;
   reg [1023:0] vcd_path;
   reg [1023:0] report_path;
+  integer max_cycles_plusarg_seen;
+  integer check_result_plusarg_seen;
+  integer result_addr_plusarg_seen;
+  integer expected_plusarg_seen;
+  integer vcd_plusarg_seen;
+  integer report_plusarg_seen;
 
   cpu #(
     .DATA_ADDR_SPACE(DATA_ADDR_SPACE),
@@ -81,26 +126,75 @@ module cpu_tb;
     .WriteEn(DmemWriteEn)
   );
 
+  assign debug_halt = halt;
+  assign debug_IC = IC;
+  assign debug_instr = instr;
+  assign debug_opcode = cpu_inst.opcode;
+  assign debug_DataAddress = DataAddress;
+  assign debug_DataMemoryWrite = DataMemoryWrite;
+  assign debug_DataMemoryRead = DataMemoryRead;
+  assign debug_DmemReadEn = DmemReadEn;
+  assign debug_DmemWriteEn = DmemWriteEn;
+  assign debug_RegWrite = cpu_inst.RegWrite;
+  assign debug_RegDest = cpu_inst.RegDest;
+  assign debug_MemOp = cpu_inst.MemOp;
+  assign debug_BranchEqual = cpu_inst.BranchEqual;
+  assign debug_BranchLt = cpu_inst.BranchLt;
+  assign debug_isJump = cpu_inst.isJump;
+  assign debug_LongJump = cpu_inst.LongJump;
+  assign debug_isImmLoad = cpu_inst.isImmLoad;
+  assign debug_ALUCtrl = cpu_inst.ALUCtrl;
+  assign debug_ImmSel = cpu_inst.ImmSel;
+  assign debug_CMPType = cpu_inst.CMPType;
+  assign debug_ReadRegRa = cpu_inst.ReadRegRa;
+  assign debug_ReadRegRb = cpu_inst.ReadRegRb;
+  assign debug_WriteReg = cpu_inst.WriteReg;
+  assign debug_ReadDataRa = cpu_inst.ReadDataRa;
+  assign debug_ReadDataRb = cpu_inst.ReadDataRb;
+  assign debug_OperandA = cpu_inst.OperandA;
+  assign debug_OperandB = cpu_inst.OperandB;
+  assign debug_ALURes = cpu_inst.ALURes;
+  assign debug_zero = cpu_inst.zerof;
+  assign debug_altb = cpu_inst.altb;
+  assign debug_RegDataWrite = cpu_inst.RegDataWrite;
+  assign debug_WillBranch = cpu_inst.WillBranch;
+  assign debug_NextIC = cpu_inst.NextIC;
+
   initial begin
     clk = 1'b0;
     forever #5 clk = ~clk;
   end
 
+  always @(posedge clk) begin
+    #1 live_result = read_dmem_word28(result_addr);
+  end
+
   initial begin
     max_cycles = 1000;
+    check_result = 1;
     result_addr = 28'h0000200;
     expected = 28'd25;
+    actual = {DATA_WORD_WIDTH{1'b0}};
+    live_result = {DATA_WORD_WIDTH{1'b0}};
+    actual_valid = 1'b0;
     vcd_path = "cpu_tb.vcd";
     report_path = "result.json";
 
-    void'($value$plusargs("MAX_CYCLES=%d", max_cycles));
-    void'($value$plusargs("RESULT_ADDR=%h", result_addr));
-    void'($value$plusargs("EXPECTED=%d", expected));
-    void'($value$plusargs("VCD=%s", vcd_path));
-    void'($value$plusargs("REPORT=%s", report_path));
+    max_cycles_plusarg_seen = $value$plusargs("MAX_CYCLES=%d", max_cycles);
+    check_result_plusarg_seen = $value$plusargs("CHECK_RESULT=%d", check_result);
+    result_addr_plusarg_seen = $value$plusargs("RESULT_ADDR=%h", result_addr);
+    expected_plusarg_seen = $value$plusargs("EXPECTED=%d", expected);
+    vcd_plusarg_seen = $value$plusargs("VCD=%s", vcd_path);
+    report_plusarg_seen = $value$plusargs("REPORT=%s", report_path);
 
     $dumpfile(vcd_path);
     $dumpvars(0, cpu_tb);
+
+    $display("cpu_tb config: max_cycles=%0d%s check_result=%0d%s result_addr=0x%07h%s expected=%0d%s",
+             max_cycles, max_cycles_plusarg_seen ? " (plusarg)" : " (default)",
+             check_result, check_result_plusarg_seen ? " (plusarg)" : " (default)",
+             result_addr, result_addr_plusarg_seen ? " (plusarg)" : " (default)",
+             expected, expected_plusarg_seen ? " (plusarg)" : " (default)");
 
     cycle_count = 0;
     reset = 1'b1;
@@ -113,7 +207,9 @@ module cpu_tb;
     end
 
     actual = read_dmem_word28(result_addr);
-    pass = halt && (actual == expected);
+    live_result = actual;
+    actual_valid = 1'b1;
+    pass = halt && (!check_result || actual === expected);
     write_report(pass, actual);
 
     if (pass) begin
@@ -151,11 +247,24 @@ module cpu_tb;
         $fwrite(report_fd, "{\n");
         $fwrite(report_fd, "  \"pass\": %s,\n", pass_value ? "true" : "false");
         $fwrite(report_fd, "  \"halt\": %s,\n", halt ? "true" : "false");
+        $fwrite(report_fd, "  \"check_result\": %0d,\n", check_result);
         $fwrite(report_fd, "  \"cycles\": %0d,\n", cycle_count);
         $fwrite(report_fd, "  \"ic\": %0d,\n", IC);
         $fwrite(report_fd, "  \"result_addr\": %0d,\n", result_addr);
+        $fwrite(report_fd, "  \"result_addr_hex\": \"%07h\",\n", result_addr);
         $fwrite(report_fd, "  \"expected\": %0d,\n", expected);
-        $fwrite(report_fd, "  \"actual\": %0d\n", actual_value);
+        $fwrite(report_fd, "  \"expected_hex\": \"%07h\",\n", expected);
+        $fwrite(report_fd, "  \"actual\": %0d,\n", actual_value);
+        $fwrite(report_fd, "  \"actual_hex\": \"%07h\",\n", actual_value);
+        $fwrite(report_fd, "  \"actual_valid\": %0d,\n", actual_valid);
+        $fwrite(report_fd, "  \"live_result\": %0d,\n", live_result);
+        $fwrite(report_fd, "  \"live_result_hex\": \"%07h\",\n", live_result);
+        $fwrite(report_fd, "  \"max_cycles_plusarg_seen\": %0d,\n", max_cycles_plusarg_seen);
+        $fwrite(report_fd, "  \"check_result_plusarg_seen\": %0d,\n", check_result_plusarg_seen);
+        $fwrite(report_fd, "  \"result_addr_plusarg_seen\": %0d,\n", result_addr_plusarg_seen);
+        $fwrite(report_fd, "  \"expected_plusarg_seen\": %0d,\n", expected_plusarg_seen);
+        $fwrite(report_fd, "  \"vcd_plusarg_seen\": %0d,\n", vcd_plusarg_seen);
+        $fwrite(report_fd, "  \"report_plusarg_seen\": %0d\n", report_plusarg_seen);
         $fwrite(report_fd, "}\n");
         $fclose(report_fd);
       end else begin
