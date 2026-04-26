@@ -12,7 +12,7 @@ module dmem #(
     input WriteEn
 );
 
-    reg [DATA_WORD_WIDTH-1:0] dmemory [0:2**DATA_ADDR_SPACE - 1];
+    reg [7:0] dmemory [0:2**DATA_ADDR_SPACE - 1];
 
     initial begin
         $readmemh("data.hex", dmemory);
