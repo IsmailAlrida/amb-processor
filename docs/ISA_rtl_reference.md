@@ -193,10 +193,12 @@ So we can load an immediate in 4 cycles
 
 ```verilog
 
-reg [28:0] IMR;
+reg [27:0] IMR;
 reg [7:0] incoming_immediate;
 reg [1:0] slot;
 
+
+ 
 always @(*) 
 begin
   case(slot)
@@ -247,6 +249,29 @@ behaviorwise we can always have
 
 Annnnnd what if we rebrand MEMOFF as a "segmenter" since that was what we originally had in mind.
 
+### Suggested Register Quick Reference
+
+Suggested 16-slot register map under the ideas above:
+
+| Sel | Name | Role | Notes |
+| --- | --- | --- | --- |
+| `0000` | `R0` | General purpose | Unchanged general-purpose register |
+| `0001` | `R1` | General purpose | Unchanged general-purpose register |
+| `0010` | `R2` | General purpose | Unchanged general-purpose register |
+| `0011` | `R3` | General purpose | Unchanged general-purpose register |
+| `0100` | `R4` | General purpose | Unchanged general-purpose register |
+| `0101` | `R5` | General purpose | Unchanged general-purpose register |
+| `0110` | `R6` | General purpose | Unchanged general-purpose register |
+| `0111` | `R7` | General purpose | Unchanged general-purpose register |
+| `1000` | `IC` | Instruction counter | Byte-addressed program counter |
+| `1001` | `SP` | Stack pointer | Preserved in the suggested model |
+| `1010` | `LC` | Loop counter | Preserved in the suggested model |
+| `1011` | `IMR` | Immediate assembly register | Replaces the former `SHC` slot in this suggested model |
+| `1100` | `JMPOFF` | Jump base offset | Base offset used by the 8-bit jump forms |
+| `1101` | `MEMOFF` | Memory base / segment register | Kept as `MEMOFF`, but treated conceptually as a segment/base register |
+| `1110` | `CMPA` | Compare operand A | Used by conditional jump compares |
+| `1111` | `CMPB` | Compare operand B | Used by conditional jump compares |
+
 soooo
 
 | opcode7 | Mnemonic | Behavior |
@@ -257,9 +282,9 @@ soooo
 | `0010001` | `OR Ra, Rb` | `Ra = Ra OR Rb` |
 | `0010010` | `AND Ra, Rb` | `Ra = Ra AND Rb` |
 | `0010011` | `XOR Ra, Rb` | `Ra = Ra XOR Rb` |
-| `0010100` | `SHL Ra` | `Ra = Ra << SHC` |
-| `0010101` | `SHR Ra` | `Ra = Ra >> SHC` |
-| `0010110` | `SAR Ra` | `Ra = arithmetic_right_shift(Ra, SHC)` |
+| `0010100` | `SHL Ra, Rb` | `Ra = Ra << Rb` |
+| `0010101` | `SHR Ra, Rb` | `Ra = Ra >> Rb` |
+| `0010110` | `SAR Ra, Rb` | `Ra = arithmetic_right_shift(Ra, Rb)` |
 | `0010111` | `ADD Ra, Rb` | `Ra = Ra + Rb` |
 | `0011000` | `SUB Ra, Rb` | `Ra = Ra - Rb` |
 | `0011001` | `MOV Ra, Rb` | `Ra = Rb` |
@@ -270,9 +295,87 @@ soooo
 | `0011110` | `LOAD Ra, Rb` | `Ra = MEM[Rb + MEMOFF]` as a 28-bit word |
 | `0011111` | `STOR Ra, Rb` | `MEM[Rb + MEMOFF] = Ra` as a 28-bit word |
 | `1000000` | `JMP imm8` | `IC = IC + (imm8 << 1)` |
-| `1000001` | `JMPL imm8` | `IC = IC + (imm8 << 1) + JMPOFF` |
+| `1000001` | `JMPL imm8` | `IC = IC + ( (imm8 + JMPOFF) << 1) ` |
 | `1000010` | `JPEQ imm8` | If `CMPA == CMPB`, do `JMPL` |
 | `1000011` | `JPBLW imm8` | If `CMPA < CMPB`, do `JMPL` |
 | `1000100` | `JMPR Ra` | `IC = IC + (Ra << 1)` | 
 
 maybe let's not do JMPR. It's more headache than necessary for this version especially.
+
+I dont see why we need SHC, especially because it complicates stuff on the hardware side when we can just make it a register-register op.
+
+Reg-reg instructions
+
+| 14:8 | 7:4 | 3:0 |
+| --- | --- | --- |
+| Opcode | Rb | Ra |
+
+Immediate Load + Jumps
+
+| 14:8 | 7:0 |
+| --- | --- |
+| Opcode | imm8 |
+
+rb is source, ra is destination
+
+## RTL Implementation Helper Notes
+
+These notes capture the current RTL-facing contract for wiring `cpu.v` and the module shells.
+
+### Field Roles
+
+| Field | Role | RTL meaning |
+| --- | --- | --- |
+| `instr[14:8]` | `opcode7` | Controller decode input |
+| `instr[7:4]` | `Rb` | Source register |
+| `instr[3:0]` | `Ra` | Destination register |
+| `instr[7:0]` | `imm8` | Immediate payload for immediate loads and jumps |
+
+### Datapath Contract
+
+| Path | Contract |
+| --- | --- |
+| ALU register ops | `OperandA = Ra`, `OperandB = Rb`, result writes back to `Ra` |
+| `MOV Ra, Rb` | ALU should output `OperandB` |
+| `LOAD Ra, Rb` | Address is `Rb + MEMOFF`; memory read value writes to `Ra` |
+| `STOR Ra, Rb` | Address is `Rb + MEMOFF`; memory write data is `Ra` |
+| Immediate loads | `imm8` is zero-extended onto writeback data and written into `IMR` |
+| Normal PC update | `IC = IC + 2` |
+| Jump PC update | `IC = IC + JumpOffset` |
+
+### Control Signal Contracts
+
+| Signal | Values / meaning |
+| --- | --- |
+| `RegDest` | `00`: memory read, `01`: ALU result, `10`: immediate, `11`: zero |
+| `ImmSel` | `00`: `LIL`, `01`: `LIH`, `10`: `LILL`, `11`: `LIHH` |
+| `isImmLoad` | Selects `IMR` as the register-file write address |
+| `MemOp` | Selects memory-address ALU operands: `Rb + MEMOFF` |
+| `isJump` | Enables jump/branch register reads from `CMPA` and `CMPB` |
+| `BranchEqual` | Conditional branch uses ALU `zero` flag |
+| `BranchLt` | Conditional branch uses ALU `altb` flag |
+| `LongJump` | Adds `JMPOFF` into the jump stride calculation |
+| `halt` | Freezes `IC` update when asserted |
+
+### Immediate Register Lane Map
+
+| `ImmSel` | Mnemonic | IMR lane written |
+| --- | --- | --- |
+| `00` | `LIL imm8` | `IMR[7:0]` |
+| `01` | `LIH imm8` | `IMR[15:8]` |
+| `10` | `LILL imm8` | `IMR[23:16]` |
+| `11` | `LIHH imm8` | `IMR[27:24] = imm8[3:0]` |
+
+### External Memory Interface
+
+`cpu.v` treats instruction and data memory as external modules:
+
+| CPU port | Direction | Connects to |
+| --- | --- | --- |
+| `IC` | output | Instruction memory address input |
+| `instr` | input | Instruction memory instruction output |
+| `DataAddress` | output | Data memory address input |
+| `DataMemoryWrite` | output | Data memory write-data input |
+| `DataMemoryRead` | input | Data memory read-data output |
+| `DmemReadEn` | output | Data memory read enable |
+| `DmemWriteEn` | output | Data memory write enable |
