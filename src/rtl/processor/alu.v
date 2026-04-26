@@ -18,12 +18,13 @@ module alu #(
     //! ALU control multiplexes which operation to carry out with the given data
     input [CONTROL_OP_WIDTH-1:0] ALUCtrl,
     //! A [DATA_wORD_WIDTH-1:0] result of the ALU operation
-    output [DATA_WORD_WIDTH-1:0] result,
+    output reg [DATA_WORD_WIDTH-1:0] result,
     //! Zero flag set when the result of an operation is 0
     output zero,
     //! A-less-than-B flag is set when... A is less than B (OperandA < OperandB). 
     output altb
 );
+
 
     //TODO: Document this for the teroshdl documenter
 
@@ -38,8 +39,15 @@ module alu #(
     localparam  ALU_SUB = 4'b1000;
     localparam  ALU_MOV = 4'b1001;
 
+    assign zero = (OperandA == OperandB);
+    assign altb = (OperandA < OperandB);
+
+
     //! Selects which of the many operations to conduct on Operand A and Operand B
     always @(*) begin : operation_select
+        initial begin
+            zero = unset;
+        end
         case (ALUCtrl)
             //! Invert OperandA
             // TODO: Add another NOT method to use the hardware efficiently by inverting BOTH OpA and OpB
@@ -47,10 +55,10 @@ module alu #(
                 result = ~OperandA;
             end 
             ALU_OR : begin
-                result = OperandA || OperandB;
+                result = OperandA | OperandB;
             end
             ALU_AND : begin
-                result = OperandA && OperandB;
+                result = OperandA & OperandB;
             end
             ALU_XOR : begin
                 result = OperandA ^^ OperandB;
@@ -62,7 +70,7 @@ module alu #(
                 result = OperandA >> OperandB;
             end
             ALU_SAR : begin
-                result = OperandA >> OperandB;
+                result = OperandA >>> OperandB;
             end
             ALU_ADD : begin
                 result = OperandA + OperandB;
@@ -77,7 +85,6 @@ module alu #(
             //! Do nothing. Write back Ra as is.
             default:  result = OperandA;
         endcase
-        
     end
 
 endmodule
