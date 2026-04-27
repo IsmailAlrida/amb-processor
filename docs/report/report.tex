@@ -1,0 +1,407 @@
+\documentclass[12pt,a4paper]{article}
+
+% ============================================================
+% PREAMBLE
+% ============================================================
+
+% ---------------- Page Geometry ----------------
+\usepackage[margin=1in,top=1.4in]{geometry}
+\setlength{\headheight}{0.6in}
+\setlength{\headsep}{0.3in}
+
+% ---------------- Language ----------------
+\usepackage[english]{babel}
+
+% ---------------- Links ----------------
+\usepackage[hidelinks]{hyperref}
+
+% ---------------- Core ----------------
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{float}
+
+% ---------------- Math ----------------
+\usepackage{amsmath, amssymb}
+\usepackage{siunitx}
+
+% ---------------- Tables ----------------
+\usepackage{array, booktabs, tabularx, colortbl}
+
+% ---------------- Code ----------------
+\usepackage{listings}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable,skins}
+
+% ---------------- Colors ----------------
+\definecolor{unired}{HTML}{EB5353}
+\definecolor{uniblue}{HTML}{182C44}
+
+% ---------------- Styled Boxes ----------------
+\newtcolorbox{resultbox}[1][Key Result]{
+    colback=blue!5,
+    colframe=uniblue,
+    fonttitle=\bfseries,
+    title=#1,
+    breakable
+}
+
+\newtcolorbox{warningbox}[1][Important]{
+    colback=red!5,
+    colframe=unired,
+    fonttitle=\bfseries,
+    title=#1,
+    breakable
+}
+
+\newtcolorbox{tipbox}[1][Design Note]{
+    colback=yellow!10,
+    colframe=orange!80,
+    fonttitle=\bfseries,
+    title=#1,
+    breakable
+}
+
+% ---------------- Header ----------------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\includegraphics[height=0.35in]{UAEU_logo.png}}
+\fancyhead[C]{\textbf{\small ELEC 462}}
+\fancyhead[R]{\textbf{\footnotesize College of Engineering}}
+\fancyfoot[C]{\thepage}
+
+\renewcommand{\headrulewidth}{1.5pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{unired}\leaders\hrule height \headrulewidth\hfill}}
+
+% ---------------- Section Styling ----------------
+\titleformat{\section}{\color{uniblue}\Large\bfseries}{\color{unired}\thesection}{1em}{}
+
+% ============================================================
+% TITLE PAGE
+% ============================================================
+
+\makeatletter
+\renewcommand{\maketitle}{
+\begin{titlepage}
+\centering
+
+\includegraphics[width=0.6\linewidth]{UAEU_logo.png}
+
+\vspace{1cm}
+
+{\Large United Arab Emirates University\par}
+{\large College of Engineering\par}
+{\large Department of Electrical Engineering\par}
+
+\vspace{1.8cm}
+
+{\Huge\bfseries\color{uniblue}The AMB Processor\par}
+\vspace{0.4cm}
+{\Large Implementation and RTL Design of the AMB Processor\par}
+\vspace{0.3cm}
+{\large ISA \& Implementation Project \#1\par}
+
+\vspace{1.5cm}
+
+{\large \textbf{Course:} ELEC 462 -- Computer Architecture and Organization\par}
+\vspace{0.5cm}
+{\large \textbf{Instructor:} Dr Abulhalim Jallad\par}
+
+\vspace{1.5cm}
+
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Student Name} & \textbf{Student ID} \\ \hline
+Alrida Ismail & 700040283 \\ \hline
+Muddathir Yousif & 700039149 \\ \hline
+Basel Alhomsi & 700036896 \\ \hline
+\end{tabular}
+
+\vfill
+
+{\large \today\par}
+
+\end{titlepage}
+}
+\makeatother
+
+% ============================================================
+\begin{document}
+\maketitle
+
+\section{ISA Summary}
+% summarize what we did in the last report, which is all commented out in the bottom
+
+\section{RTL And Logisim Overview}
+
+We implemented an optimized version of the ISA in verilog, and bundled with the python-based assembly simulator with bundled waveform viewers and an icarus verilog runtime to run the CPU verilog and verify the inner workings. It comes fully equipped with a text editor, simulator based on hardware, and is on github.
+
+For the love of the game, we also implemented in parallel the origina ISA in logisim, but we could not complete it in time. 
+
+All in all, we successfully ran the bench mark 
+
+\begin{figure}
+    \includegraphics[]{"writing0x19(Rb)to0x200(alures)dmem.png"}
+\end{figure}
+
+From the ISA, R_a is the destination register, however in STOR commands it is used to dump data in Ra 
+at the memory location specified by the ALU result. 
+
+Operand A in the ALU comes from a direct exposure of MEMOFF from the reg file when doing memory ops and it was zero hence the operand A waveform was 0.
+however operand B is the zero extended immediate (unsigned) was set to directly address 0x200. Since memory address for storing is calculated as MEMOFF + imm8 -> imm28
+the result of the ALU at this clock cycle would then be the address of the written data. The sum, 0x19, held in Ra, was only written when the data memory flag was enabled.
+
+You can install the app directly from our github releases page
+
+% % ============================================================
+% \section{ISA Overview}
+
+% In this project, we designed the AMB Processor Instruction Set Architecture from first principles. Our objective was to construct a compact, fixed-length ISA that satisfies all mandatory course constraints while remaining structurally and conceptually distinct from MIPS.
+
+% The ISA was designed around three core principles:
+
+% \begin{itemize}
+% \item Deterministic and simple instruction decoding
+% \item Explicit control-flow semantics
+% \item Expandability through structured opcode partitioning
+% \end{itemize}
+
+% \begin{resultbox}[Core Architectural Parameters]
+% \begin{itemize}
+% \item Instruction Width: 15 bits
+% \item Word Size: 28 bits
+% \item Address Width: 28 bits
+% \item Memory: Byte-addressable
+% \item PC Increment: 2 bytes per instruction
+% \item Register Count: 16 registers (28-bit each)
+% \end{itemize}
+% \end{resultbox}
+
+% The architecture balances encoding efficiency with hardware clarity, ensuring that future datapath implementation remains straightforward.
+
+% % ============================================================
+% \section{Instruction Storage and PC Semantics}
+
+% Although instructions are 15 bits wide, memory is byte-addressable. Therefore:
+
+% \begin{warningbox}
+% Each instruction occupies 16 bits (2 bytes), with one unused bit.
+% \end{warningbox}
+
+% The Instruction Counter (IC) holds a byte address and increments by 2 after each fetch. This guarantees:
+
+% \begin{itemize}
+% \item Aligned instruction boundaries
+% \item Simplified fetch logic
+% \item No bit-level addressing complexity
+% \end{itemize}
+
+% All registers, ALU operations, and memory transfers operate strictly on 28-bit words.
+
+% % ============================================================
+% \section{Register Architecture}
+
+% The AMB Processor includes 16 architecturally visible 28-bit registers.
+
+% \subsection*{General Purpose Registers}
+
+% R0–R7 serve as general computation registers.
+
+% \subsection*{Special Purpose Registers}
+
+% \begin{center}
+% \begin{tabular}{|c|l|}
+% \hline
+% \textbf{Register} & \textbf{Purpose} \\
+% \hline
+% IC & Instruction Counter \\
+% SP & Stack Pointer \\
+% LC & Loop Counter \\
+% SHC & Shift Counter \\
+% JMPOFF & Long Jump Offset Base \\
+% MEMOFF & Memory Offset Base \\
+% CMPA & Compare Operand A \\
+% CMPB & Compare Operand B \\
+% \hline
+% \end{tabular}
+% \end{center}
+
+% \begin{tipbox}
+% Instead of implicit status flags, we use explicit comparison registers. This eliminates hidden processor state and simplifies branch evaluation hardware.
+% \end{tipbox}
+
+% % ============================================================
+% \section{Instruction Formats}
+
+% We defined three instruction formats.
+
+% \subsection{Register-to-Register Format}
+
+% \[
+% \text{[Opcode 7 bits]} \quad \text{[Ra 4 bits]} \quad \text{[Rb 4 bits]}
+% \]
+
+% MSBs = 001
+
+% \subsection{Immediate Format}
+
+% \[
+% \text{[Opcode 3 bits]} \quad \text{[Ra 4 bits]} \quad \text{[Immediate 8 bits]}
+% \]
+
+% MSB = 1
+
+% \subsection{Jump Format}
+
+% \[
+% \text{[Opcode 4 bits]} \quad \text{[Immediate 11 bits]}
+% \]
+
+% Jump immediate is shifted left by 1 before being added to IC.
+
+% % ============================================================
+% \section{Complete Instruction Set}
+
+% % ---------------- R-type Table ----------------
+% \subsection*{Register-to-Register Instructions}
+
+% \begin{center}
+% \begin{tabular}{|l|c|}
+% \hline
+% \textbf{Instruction} & \textbf{Opcode (7 bits)} \\
+% \hline
+% NOT Ra & 0010000 \\
+% OR Ra, Rb & 0010001 \\
+% AND Ra, Rb & 0010010 \\
+% XOR Ra, Rb & 0010011 \\
+% SHL Ra, Rb & 0010100 \\
+% SHR Ra, Rb & 0010101 \\
+% SAR Ra, Rb & 0010110 \\
+% ADD Ra, Rb & 0010111 \\
+% SUB Ra, Rb & 0011000 \\
+% MOV Ra, Rb & 0011001 \\
+% \hline
+% \end{tabular}
+% \end{center}
+
+% % ---------------- Immediate Table ----------------
+% \subsection*{Immediate Instructions}
+
+% \begin{center}
+% \begin{tabular}{|l|c|}
+% \hline
+% \textbf{Instruction} & \textbf{Opcode (3 bits)} \\
+% \hline
+% LIL Ra, imm & 100 \\
+% LIH Ra, imm & 101 \\
+% LOAD Ra, imm & 110 \\
+% STOR Ra, imm & 111 \\
+% \hline
+% \end{tabular}
+% \end{center}
+
+% % ---------------- Jump Table ----------------
+% \subsection*{Jump Instructions}
+
+% \begin{center}
+% \begin{tabular}{|l|c|}
+% \hline
+% \textbf{Instruction} & \textbf{Opcode (4 bits)} \\
+% \hline
+% JMP imm & 0100 \\
+% JMPL imm & 0101 \\
+% JPEQ imm & 0110 \\
+% JPBLW imm & 0111 \\
+% \hline
+% \end{tabular}
+% \end{center}
+
+% % ---------------- System Table ----------------
+% \subsection*{System Instructions}
+
+% \begin{center}
+% \begin{tabular}{|l|c|}
+% \hline
+% \textbf{Instruction} & \textbf{Opcode (7 bits)} \\
+% \hline
+% HLT & 0000000 \\
+% NOP & 0000001 \\
+% \hline
+% \end{tabular}
+% \end{center}
+
+% % ============================================================
+% \section{Example Program}
+
+% \begin{lstlisting}
+% ; Compute R0 + R1
+% ; If equal to R2, store result
+
+% LIL   R0, 5
+% LIL   R1, 3
+% ADD   R0, R1
+
+% LIL   R2, 8
+
+% MOV   CMPA, R0
+% MOV   CMPB, R2
+
+% JPEQ  2
+% HLT
+
+% STOR  R0, 20
+% HLT
+% \end{lstlisting}
+
+% \begin{resultbox}
+% This program demonstrates arithmetic computation, explicit comparison, conditional control flow, and memory storage — exercising all major instruction classes.
+% \end{resultbox}
+
+% % ============================================================
+% \section{Architectural Differences from MIPS}
+
+% \begin{enumerate}
+% \item 15-bit instruction width instead of 32-bit.
+% \item Explicit comparison registers instead of implicit flags.
+% \item Dedicated offset registers (JMPOFF, MEMOFF).
+% \item No branch delay slots.
+% \item Structured opcode partitioning.
+% \end{enumerate}
+
+% % ============================================================
+% \section{Assembler Implementation}
+
+% To validate and test the AMB Processor ISA, we developed a dedicated assembler in Python. The assembler was implemented using Codex-assisted development and later compiled into a standalone Windows executable to allow convenient execution without requiring a Python runtime environment.
+
+% The assembler provides a fully integrated development interface tailored to our custom assembly language. Its primary features include:
+
+% \begin{itemize}
+% \item A built-in code editor supporting syntax highlighting and real-time syntax validation
+% \item Auto-completion for instruction mnemonics and register names
+% \item Step-by-step execution mode for debugging
+% \item Full program execution mode
+% \item Support for saving and loading source files using a custom \texttt{.ambasm} file extension
+% \end{itemize}
+
+% \noindent In addition to code editing and execution, the assembler includes a dynamic memory visualization panel. This panel displays the processor memory map, allowing the user to specify the starting address and the number of memory blocks to be shown. This enables direct observation of instruction encoding and data storage during execution.
+
+% \noindent A dedicated register viewer panel displays all architectural registers and their current 28-bit contents in real time. This allows us to trace arithmetic operations, control-flow behavior, and memory interactions during program execution.
+
+% \noindent To further improve usability, the application includes an integrated help panel containing the complete instruction set reference and documentation. This ensures that users can quickly verify opcode formats and instruction semantics while writing code.
+
+% \noindent All interface panels are fully resizable, enabling flexible layout adjustments and improving overall usability during development and debugging sessions.
+
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=\linewidth]{image.png}
+% \caption{Screenshot of the AMB Processor assembler interface}
+% \label{fig:assembler}
+% \end{figure}
+% % ============================================================
+% \section{Conclusion}
+
+% The AMB Processor ISA satisfies all project requirements while maintaining originality and structural clarity. The architecture is compact, extensible, and directly implementable in hardware.
+
+\end{document}
+

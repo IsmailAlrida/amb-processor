@@ -7,6 +7,8 @@
 #define MyAppPublisher "Alrida Ismail"
 #define MyAppURL "https://github.com/IsmailAlrida/amb-processor"
 #define MyAppExeName "amb-assembler.exe"
+#define MyRepoRoot "C:\Users\Alrida Ismail\Documents\GitHub\amb-processor"
+#define MyAppBuildDir "C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\dist\amb-assembler"
 #define MyAppAssocName "AMB Assembly"
 #define MyAppAssocExt ".ambasm"
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
@@ -34,13 +36,14 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
-LicenseFile=C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\LICENSE.txt
+LicenseFile={#MyRepoRoot}\LICENSE.txt
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
-OutputDir=C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\dist\installer out
+OutputDir={#MyRepoRoot}\dist\installer out
 OutputBaseFilename=amb-simulator-setup
-SetupIconFile=C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\assets\amb.ico
-SolidCompression=yes
+SetupIconFile={#MyRepoRoot}\assets\amb.ico
+; OSS CAD Suite is large and mostly pre-compressed binaries; non-solid output is less fragile to compile.
+SolidCompression=no
 WizardStyle=modern dark
 
 [Languages]
@@ -50,8 +53,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\dist\amb-assembler\_internal\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyAppBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pyc,*.pyo,assembler_faulthandler.log"
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]

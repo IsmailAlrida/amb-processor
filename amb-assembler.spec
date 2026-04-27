@@ -5,6 +5,9 @@ import platform
 
 
 ROOT = Path.cwd()
+EXCLUDED_TREE_PARTS = {"__pycache__"}
+EXCLUDED_FILE_SUFFIXES = {".pyc", ".pyo"}
+EXCLUDED_FILE_NAMES = {"assembler_faulthandler.log"}
 
 
 def platform_key():
@@ -17,13 +20,21 @@ def platform_key():
     return f"{system}-{machine}"
 
 
+def should_collect(path):
+    if any(part in EXCLUDED_TREE_PARTS for part in path.parts):
+        return False
+    if path.suffix.lower() in EXCLUDED_FILE_SUFFIXES:
+        return False
+    return path.name not in EXCLUDED_FILE_NAMES
+
+
 def collect_tree(src, dest):
     src_path = ROOT / src
     if not src_path.exists():
         return []
     entries = []
     for path in src_path.rglob("*"):
-        if path.is_file():
+        if path.is_file() and should_collect(path):
             rel_parent = path.relative_to(src_path).parent
             entries.append((str(path), str(Path(dest) / rel_parent)))
     return entries
