@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AMB ISA RTL Reference</title>
+  <style>
+    :root {
+      --ink: #14212a;
+      --muted: #5f7280;
+      --line: #b9cedb;
+      --blue: #0b84d8;
+      --blue-dark: #075b96;
+      --paper: #f8fbfd;
+      --panel: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: linear-gradient(135deg, #ffffff, var(--paper));
+      color: var(--ink);
+      font-family: "Segoe UI", Verdana, Geneva, sans-serif;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 34px;
+    }
+
+    header {
+      padding: 12px 0 28px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(36px, 6vw, 72px);
+      line-height: 0.95;
+      letter-spacing: -0.055em;
+    }
+
+    h2 {
+      margin: 34px 0 12px;
+      color: var(--blue-dark);
+      font-size: 24px;
+    }
+
+    h3 {
+      margin: 22px 0 10px;
+      font-size: 18px;
+    }
+
+    p, li {
+      line-height: 1.55;
+      color: #344653;
+    }
+
+    code, pre {
+      font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    }
+
+    code {
+      color: var(--blue-dark);
+      font-weight: 700;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 14px 0;
+      padding: 16px;
+      border-radius: 12px;
+      background: #14212a;
+      color: #e6edf3;
+    }
+
+    table {
+      width: 100%;
+      margin: 14px 0 22px;
+      border-collapse: collapse;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(20, 45, 60, 0.08);
+    }
+
+    th {
+      background: var(--blue-dark);
+      color: #eef8ff;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    td {
+      color: var(--ink);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .lede {
+      max-width: 860px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.86);
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--blue-dark);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">RTL-facing ISA v1</p>
+      <h1>AMB ISA RTL Reference</h1>
+      <p class="lede">Clean HTML view of the RTL contract used by the assembler, simulator, and CPU datapath. The Markdown file remains the working notes source; this page is the Blueprint reading surface.</p>
+    </header>
+
+    <h2>Core Facts</h2>
+    <table>
+      <tr><th>Item</th><th>Value</th></tr>
+      <tr><td>Instruction encoding width</td><td>15 bits</td></tr>
+      <tr><td>Instruction storage width</td><td>16 bits, stored as 2 bytes</td></tr>
+      <tr><td>Register file</td><td>16 registers, 28 bits each</td></tr>
+      <tr><td>Address model</td><td>28-bit byte addresses</td></tr>
+      <tr><td>Normal next instruction</td><td><code>IC + 2</code></td></tr>
+      <tr><td>Instruction memory</td><td>External byte-addressed instruction memory</td></tr>
+      <tr><td>Data memory</td><td>External byte-addressed data memory, 28-bit little-endian word accesses</td></tr>
+    </table>
+
+    <pre>byte address N     : [unused][instr[14:8]]
+byte address N + 1 : [instr[7:0]]
+
+IC points to byte address N.
+Next sequential IC is IC + 2.</pre>
+
+    <h2>Instruction Formats</h2>
+    <div class="grid">
+      <div class="card">
+        <strong>Register-register and memory</strong>
+        <code>[14:8] opcode7 | [7:4] Rb | [3:0] Ra</code>
+        <p><code>Ra</code> is the destination. <code>Rb</code> is the source.</p>
+      </div>
+      <div class="card">
+        <strong>Immediate loads and jumps</strong>
+        <code>[14:8] opcode7 | [7:0] imm8</code>
+        <p>Immediate loads write <code>IMR</code>. Jumps use signed 8-bit word offsets.</p>
+      </div>
+    </div>
+
+    <h2>Suggested Register Quick Reference</h2>
+    <table>
+      <tr><th>Sel</th><th>Name</th><th>Role</th><th>Notes</th></tr>
+      <tr><td><code>0000</code></td><td><code>R0</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0001</code></td><td><code>R1</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0010</code></td><td><code>R2</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0011</code></td><td><code>R3</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0100</code></td><td><code>R4</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0101</code></td><td><code>R5</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0110</code></td><td><code>R6</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>0111</code></td><td><code>R7</code></td><td>General purpose</td><td>General-purpose register</td></tr>
+      <tr><td><code>1000</code></td><td><code>IC</code></td><td>Instruction counter</td><td>Visible architectural PC value</td></tr>
+      <tr><td><code>1001</code></td><td><code>SP</code></td><td>Stack pointer</td><td>Reserved for stack-oriented code</td></tr>
+      <tr><td><code>1010</code></td><td><code>LC</code></td><td>Loop counter</td><td>Reserved loop helper register</td></tr>
+      <tr><td><code>1011</code></td><td><code>IMR</code></td><td>Immediate assembly register</td><td>Replaces the former <code>SHC</code> slot in ISA v1</td></tr>
+      <tr><td><code>1100</code></td><td><code>JMPOFF</code></td><td>Jump base offset</td><td>Base offset used by 8-bit jump forms</td></tr>
+      <tr><td><code>1101</code></td><td><code>MEMOFF</code></td><td>Memory base / segment register</td><td>Kept as <code>MEMOFF</code>; conceptually a segment/base register</td></tr>
+      <tr><td><code>1110</code></td><td><code>CMPA</code></td><td>Compare operand A</td><td>Used by conditional jump compares</td></tr>
+      <tr><td><code>1111</code></td><td><code>CMPB</code></td><td>Compare operand B</td><td>Used by conditional jump compares</td></tr>
+    </table>
+
+    <h2>Opcode Map</h2>
+    <table>
+      <tr><th>opcode7</th><th>Mnemonic</th><th>Behavior</th></tr>
+      <tr><td><code>0000000</code></td><td><code>HLT</code></td><td>Halt CPU operation</td></tr>
+      <tr><td><code>0000001</code></td><td><code>NOP</code></td><td>No action</td></tr>
+      <tr><td><code>0010000</code></td><td><code>NOT Ra</code></td><td><code>Ra = ~Ra</code></td></tr>
+      <tr><td><code>0010001</code></td><td><code>OR Ra, Rb</code></td><td><code>Ra = Ra OR Rb</code></td></tr>
+      <tr><td><code>0010010</code></td><td><code>AND Ra, Rb</code></td><td><code>Ra = Ra AND Rb</code></td></tr>
+      <tr><td><code>0010011</code></td><td><code>XOR Ra, Rb</code></td><td><code>Ra = Ra XOR Rb</code></td></tr>
+      <tr><td><code>0010100</code></td><td><code>SHL Ra, Rb</code></td><td><code>Ra = Ra << Rb</code></td></tr>
+      <tr><td><code>0010101</code></td><td><code>SHR Ra, Rb</code></td><td><code>Ra = Ra >> Rb</code></td></tr>
+      <tr><td><code>0010110</code></td><td><code>SAR Ra, Rb</code></td><td><code>Ra = arithmetic_right_shift(Ra, Rb)</code></td></tr>
+      <tr><td><code>0010111</code></td><td><code>ADD Ra, Rb</code></td><td><code>Ra = Ra + Rb</code></td></tr>
+      <tr><td><code>0011000</code></td><td><code>SUB Ra, Rb</code></td><td><code>Ra = Ra - Rb</code></td></tr>
+      <tr><td><code>0011001</code></td><td><code>MOV Ra, Rb</code></td><td><code>Ra = Rb</code></td></tr>
+      <tr><td><code>0011010</code></td><td><code>LIL imm8</code></td><td><code>IMR[7:0] = imm8</code></td></tr>
+      <tr><td><code>0011011</code></td><td><code>LIH imm8</code></td><td><code>IMR[15:8] = imm8</code></td></tr>
+      <tr><td><code>0011100</code></td><td><code>LILL imm8</code></td><td><code>IMR[23:16] = imm8</code></td></tr>
+      <tr><td><code>0011101</code></td><td><code>LIHH imm8</code></td><td><code>IMR[27:24] = imm8[3:0]</code></td></tr>
+      <tr><td><code>0011110</code></td><td><code>LOAD Ra, Rb</code></td><td><code>Ra = DMEM[Rb + MEMOFF]</code></td></tr>
+      <tr><td><code>0011111</code></td><td><code>STOR Ra, Rb</code></td><td><code>DMEM[Rb + MEMOFF] = Ra</code></td></tr>
+      <tr><td><code>1000000</code></td><td><code>JMP imm8</code></td><td><code>IC = IC + (imm8 << 1)</code></td></tr>
+      <tr><td><code>1000001</code></td><td><code>JMPL imm8</code></td><td><code>IC = IC + ((imm8 + JMPOFF) << 1)</code></td></tr>
+      <tr><td><code>1000010</code></td><td><code>JPEQ imm8</code></td><td>If <code>CMPA == CMPB</code>, do <code>JMPL</code></td></tr>
+      <tr><td><code>1000011</code></td><td><code>JPBLW imm8</code></td><td>If <code>CMPA < CMPB</code>, do <code>JMPL</code></td></tr>
+    </table>
+
+    <h2>Datapath Contract</h2>
+    <table>
+      <tr><th>Path</th><th>Contract</th></tr>
+      <tr><td>ALU register ops</td><td><code>OperandA = Ra</code>, <code>OperandB = Rb</code>, result writes back to <code>Ra</code></td></tr>
+      <tr><td><code>MOV Ra, Rb</code></td><td>ALU outputs <code>OperandB</code></td></tr>
+      <tr><td><code>LOAD Ra, Rb</code></td><td>Address is <code>Rb + MEMOFF</code>; memory read value writes to <code>Ra</code></td></tr>
+      <tr><td><code>STOR Ra, Rb</code></td><td>Address is <code>Rb + MEMOFF</code>; memory write data is <code>Ra</code></td></tr>
+      <tr><td>Immediate loads</td><td><code>imm8</code> writes the selected <code>IMR</code> lane</td></tr>
+      <tr><td>Normal PC update</td><td><code>IC = IC + 2</code></td></tr>
+      <tr><td>Jump PC update</td><td><code>IC = IC + JumpOffset</code></td></tr>
+    </table>
+
+    <h2>Control Signal Contracts</h2>
+    <table>
+      <tr><th>Signal</th><th>Values / meaning</th></tr>
+      <tr><td><code>RegDest</code></td><td><code>00</code>: memory read, <code>01</code>: ALU result, <code>10</code>: immediate, <code>11</code>: zero</td></tr>
+      <tr><td><code>ImmSel</code></td><td><code>00</code>: LIL, <code>01</code>: LIH, <code>10</code>: LILL, <code>11</code>: LIHH</td></tr>
+      <tr><td><code>isImmLoad</code></td><td>Selects <code>IMR</code> as the register-file write address</td></tr>
+      <tr><td><code>MemOp</code></td><td>Selects memory-address ALU operands: <code>Rb + MEMOFF</code></td></tr>
+      <tr><td><code>isJump</code></td><td>Enables jump/branch register reads from <code>CMPA</code> and <code>CMPB</code></td></tr>
+      <tr><td><code>BranchEqual</code></td><td>Conditional branch uses ALU <code>zero</code> flag</td></tr>
+      <tr><td><code>BranchLt</code></td><td>Conditional branch uses ALU <code>altb</code> flag</td></tr>
+      <tr><td><code>LongJump</code></td><td>Adds <code>JMPOFF</code> into the jump stride calculation</td></tr>
+      <tr><td><code>halt</code></td><td>Freezes <code>IC</code> update when asserted</td></tr>
+    </table>
+
+    <h2>External Memory Interface</h2>
+    <table>
+      <tr><th>CPU port</th><th>Direction</th><th>Connects to</th></tr>
+      <tr><td><code>IC</code></td><td>output</td><td>Instruction memory address input</td></tr>
+      <tr><td><code>instr</code></td><td>input</td><td>Instruction memory instruction output</td></tr>
+      <tr><td><code>DataAddress</code></td><td>output</td><td>Data memory address input</td></tr>
+      <tr><td><code>DataMemoryWrite</code></td><td>output</td><td>Data memory write-data input</td></tr>
+      <tr><td><code>DataMemoryRead</code></td><td>input</td><td>Data memory read-data output</td></tr>
+      <tr><td><code>DmemReadEn</code></td><td>output</td><td>Data memory read enable</td></tr>
+      <tr><td><code>DmemWriteEn</code></td><td>output</td><td>Data memory write enable</td></tr>
+    </table>
+  </main>
+</body>
+</html>

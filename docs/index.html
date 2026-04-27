@@ -73,6 +73,29 @@
       scrollbar-width: thin;
     }
 
+    .shell-control {
+      flex: 0 0 auto;
+      border-color: var(--line);
+      background: #ffffff;
+      color: var(--blue-dark);
+    }
+
+    .shell-control:hover {
+      border-color: var(--blue);
+      background: #eef8ff;
+      color: var(--blue-dark);
+    }
+
+    button:disabled,
+    button:disabled:hover,
+    button:disabled:active {
+      border-color: #cad7df;
+      background: #eef3f6;
+      color: #8aa0af;
+      cursor: not-allowed;
+      transform: none;
+    }
+
     button {
       flex: 0 0 auto;
       border: 1px solid var(--blue);
@@ -120,6 +143,34 @@
       height: 100%;
       border: 0;
       background: var(--panel);
+    }
+
+    .doc-bar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 3;
+      display: none;
+      max-width: calc(100% - 24px);
+      padding: 8px 10px;
+      border: 1px solid rgba(11, 132, 216, 0.22);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 8px 22px rgba(20, 45, 60, 0.14);
+      backdrop-filter: blur(8px);
+    }
+
+    .doc-bar strong {
+      display: block;
+      color: var(--blue-dark);
+      font-size: 13px;
+    }
+
+    .doc-bar span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
     }
 
     #svgExplorer {
@@ -219,6 +270,301 @@
       color: var(--blue-dark);
     }
 
+    .authors {
+      position: relative;
+      display: none;
+      height: 100%;
+      overflow: auto;
+      padding: 36px;
+      background: #ffffff;
+    }
+
+    .authors-logo {
+      position: absolute;
+      top: 28px;
+      left: 30px;
+      width: min(260px, calc(100% - 60px));
+      height: auto;
+      object-fit: contain;
+    }
+
+    .authors-shell {
+      max-width: 980px;
+      min-height: 100%;
+      display: grid;
+      align-content: center;
+      gap: 24px;
+      margin: 0 auto;
+      padding-top: 58px;
+    }
+
+    .authors-hero {
+      border-left: 5px solid var(--blue);
+      padding: 4px 0 6px 20px;
+    }
+
+    .authors-kicker {
+      margin: 0 0 8px 0;
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .authors h2 {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(34px, 7vw, 76px);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+    }
+
+    .authors-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .authors-meta-item {
+      border-top: 1px solid rgba(11, 132, 216, 0.20);
+      padding-top: 12px;
+    }
+
+    .authors-meta-item span {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .authors-meta-item strong {
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .authors-table-wrap {
+      overflow-x: auto;
+      border: 1px solid rgba(11, 132, 216, 0.24);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 18px 42px rgba(20, 45, 60, 0.12);
+    }
+
+    .authors table {
+      width: 100%;
+      min-width: 520px;
+      border-collapse: collapse;
+    }
+
+    .authors th {
+      padding: 14px 18px;
+      background: var(--blue-dark);
+      color: #eef8ff;
+      font-size: 12px;
+      letter-spacing: 0.10em;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    .authors td {
+      padding: 18px;
+      border-top: 1px solid rgba(11, 132, 216, 0.16);
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .authors tr.highlight td {
+      background: rgba(11, 132, 216, 0.10);
+    }
+
+    .authors td:last-child {
+      width: 210px;
+      color: var(--blue-dark);
+      font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+      font-size: 15px;
+    }
+
+    .latest-run {
+      display: none;
+      height: 100%;
+      overflow: auto;
+      padding: 28px 34px;
+      background:
+        radial-gradient(circle at top right, rgba(11, 132, 216, 0.10), transparent 28rem),
+        white;
+    }
+
+    .latest-run h2 {
+      margin: 0 0 10px 0;
+      font-size: 26px;
+    }
+
+    .latest-run p {
+      max-width: 880px;
+      line-height: 1.5;
+      color: #344653;
+    }
+
+    .run-status {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      margin: 8px 0 18px;
+      border-radius: 999px;
+      padding: 8px 13px;
+      color: white;
+      font-weight: 800;
+      background: var(--blue);
+    }
+
+    .run-status.pass,
+    .run-status.ok {
+      background: #168a55;
+    }
+
+    .run-status.fail,
+    .run-status.error {
+      background: #b42318;
+    }
+
+    .run-status.warn {
+      background: #b45309;
+    }
+
+    .run-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .run-panel {
+      margin-top: 22px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 10px 28px rgba(20, 45, 60, 0.08);
+    }
+
+    .run-panel h3 {
+      margin: 0 0 12px 0;
+      color: var(--ink);
+      font-size: 18px;
+    }
+
+    .artifact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .artifact-card {
+      border-top: 2px solid var(--line);
+      padding-top: 10px;
+    }
+
+    .artifact-card.available {
+      border-color: var(--blue);
+    }
+
+    .artifact-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+
+    .artifact-card strong {
+      display: block;
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: 16px;
+    }
+
+    .raw-artifacts {
+      margin-top: 18px;
+    }
+
+    .raw-artifacts summary {
+      width: max-content;
+      cursor: pointer;
+      color: var(--blue-dark);
+      font-weight: 800;
+    }
+
+    .run-metric {
+      border-top: 2px solid var(--blue);
+      padding-top: 10px;
+    }
+
+    .run-metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+
+    .run-metric strong {
+      display: block;
+      margin-top: 5px;
+      color: #14212a;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+
+    .run-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .run-links a {
+      border: 1px solid var(--blue);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #eef8ff;
+      color: var(--blue-dark);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .run-links a:hover {
+      background: white;
+      color: var(--blue);
+    }
+
+    .run-links a.artifact-external {
+      border-color: #b9cedb;
+      background: #f6fafc;
+      color: #48606f;
+    }
+
+    .run-paths {
+      display: grid;
+      gap: 7px;
+      margin-top: 18px;
+      color: #344653;
+      font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .empty-run {
+      display: grid;
+      align-content: center;
+      min-height: 100%;
+    }
+
     .missing {
       display: none;
       padding: 28px 34px;
@@ -229,9 +575,10 @@
 <body>
   <header>
     <div class="brand">
-      <h1>AMB CPU Docs</h1>
-      <div class="subtitle">Local RTL docs + diagrams</div>
+      <h1>AMB CPU Blueprint</h1>
+      <div class="subtitle">Docs, diagrams + RTL runs</div>
     </div>
+    <button id="backButton" class="shell-control" type="button" disabled>Back</button>
     <nav id="nav" aria-label="Documentation pages"></nav>
   </header>
 
@@ -247,19 +594,73 @@
       <div id="svgExplorer">
         <img id="svgImage" alt="Selected SVG diagram">
       </div>
+      <div id="docBar" class="doc-bar">
+        <strong id="docTitle">Document</strong>
+        <span id="docHint">Loaded inside CPU Blueprint. Use Back to return.</span>
+      </div>
       <iframe id="viewer" title="AMB documentation viewer"></iframe>
       <section id="guide" class="guide">
         <h2>Guide</h2>
-        <p>Use the top strip to move between generated module docs, schematic diagrams, ISA notes, and the latest RTL simulation report. SVG pages use this explorer so you can zoom and pan without changing the header or buttons.</p>
+        <p>Use the top strip to move between generated module docs, schematic diagrams, ISA notes, authors, and the latest RTL run summary. SVG pages use this explorer so you can zoom and pan without changing the header or buttons.</p>
         <div class="guide-grid">
-          <div class="guide-item"><strong>CPU Docs</strong>The PyQt <em>CPU Docs</em> button opens this local documentation app in a WebEngine window.</div>
+          <div class="guide-item"><strong>CPU Blueprint</strong>The PyQt <em>CPU Blueprint</em> button opens this local architecture and run-results app in a WebEngine window.</div>
+          <div class="guide-item"><strong>Latest RTL Run</strong>Shows the most recent RTL trace summary. Arbitrary programs are inspection runs; the array-sum sample is the benchmark validation run.</div>
           <div class="guide-item"><strong>CPU Core</strong>Opens the standalone expanded CPU core diagram from <code>cpu_v1_core.svg</code>.</div>
           <div class="guide-item"><strong>CPU High Level</strong>Shows the overview block diagram from <code>cpu_high_level.svg</code>.</div>
           <div class="guide-item"><strong>Module Docs</strong>Generated HTML pages describe the ports and module contracts.</div>
           <div class="guide-item"><strong>Run RTL Sim</strong>In the PyQt app, assembles the current program, runs the Verilog testbench, and writes artifacts under <code>build/rtl_sim/...</code> in dev.</div>
-          <div class="guide-item"><strong>Open Waveform</strong>Opens the latest <code>.fst</code> or <code>.vcd</code> with the bundled OSS CAD Suite viewer.</div>
-          <div class="guide-item"><strong>Open RTL Report</strong>Loads the latest generated simulation HTML report.</div>
+          <div class="guide-item"><strong>Open Waveform</strong>Opens the latest <code>.fst</code> or <code>.vcd</code> with the selected OSS CAD Suite viewer. Surfer is the default; GTKWave is available from RTL Options.</div>
           <div class="guide-item"><strong>Sample Code</strong>The sample dropdown loads ready-to-run assembly. The array-sum benchmark also selects the matching benchmark data image for RTL simulation.</div>
+          <div class="guide-item"><strong>Authors</strong>Shows the project group information mirrored from the PyQt app.</div>
+        </div>
+      </section>
+      <section id="latestRun" class="latest-run">
+        <div id="latestRunContent" class="empty-run">
+          <h2>Latest RTL Run</h2>
+          <p>Run RTL Sim to generate a trace.</p>
+        </div>
+      </section>
+      <section id="authors" class="authors">
+        <img class="authors-logo" src="../assets/UAEU_logo.png" alt="UAEU logo">
+        <div class="authors-shell">
+          <div class="authors-hero">
+            <p class="authors-kicker">Project Authors</p>
+            <h2>AMB Processor Group Project</h2>
+          </div>
+          <div class="authors-meta">
+            <div class="authors-meta-item">
+              <span>Course</span>
+              <strong>ELEC 462 -- Computer Architecture and Organization</strong>
+            </div>
+            <div class="authors-meta-item">
+              <span>Instructor</span>
+              <strong>Dr Abulhalim Jallad</strong>
+            </div>
+          </div>
+          <div class="authors-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student Name</th>
+                  <th>Student ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="highlight">
+                  <td>Alrida Ismail</td>
+                  <td>ALRIDAS_UNIVERSITY_ID</td>
+                </tr>
+                <tr>
+                  <td>Muddathir Yousif</td>
+                  <td>MUDDATHIRS_UNIVERSITY_ID</td>
+                </tr>
+                <tr>
+                  <td>Basel Alhomsi</td>
+                  <td>BASELS_UNIVERSITY_ID</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
       <section id="missing" class="missing">
@@ -271,7 +672,9 @@
 
   <script>
     const pages = [
-      { label: "Guide", type: "guide" },
+      { label: "Guide", type: "guide", id: "guide" },
+      { label: "Latest RTL Run", type: "latestRun", id: "latest-rtl-run" },
+      { label: "Authors", type: "authors", id: "authors" },
       { label: "CPU Core", type: "svg", target: "cpu_v1_core.svg" },
       { label: "CPU High Level", type: "svg", target: "cpu_high_level.svg" },
       { label: "CPU Doc", type: "doc", target: "cpu.html" },
@@ -285,21 +688,167 @@
       { label: "I Memory SVG", type: "svg", target: "imem.svg" },
       { label: "D Memory", type: "doc", target: "d_memory.html" },
       { label: "D Memory SVG", type: "svg", target: "dmem.svg" },
-      { label: "ISA RTL", type: "doc", target: "ISA_rtl_reference.md" },
-      { label: "Latest Sim Report", type: "doc", target: "../build/rtl_sim/gui_current/index.html" }
+      { label: "ISA RTL", type: "doc", target: "ISA_rtl_reference.html" }
     ];
 
     const nav = document.getElementById("nav");
+    const backButton = document.getElementById("backButton");
     const viewer = document.getElementById("viewer");
     const svgToolbar = document.getElementById("svgToolbar");
     const svgExplorer = document.getElementById("svgExplorer");
     const svgImage = document.getElementById("svgImage");
+    const docBar = document.getElementById("docBar");
+    const docTitle = document.getElementById("docTitle");
+    const docHint = document.getElementById("docHint");
     const guide = document.getElementById("guide");
+    const latestRun = document.getElementById("latestRun");
+    const latestRunContent = document.getElementById("latestRunContent");
+    const authors = document.getElementById("authors");
     const missing = document.getElementById("missing");
     const states = new Map();
+    const pageButtons = new Map();
+    const latestRunBase = "../build/rtl_sim/gui_current/";
+    const latestRunSummary = `${latestRunBase}summary.json`;
     let activePage = null;
+    let backRoute = null;
     let dragging = false;
     let dragStart = { x: 0, y: 0, panX: 0, panY: 0 };
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function displayValue(value, fallback = "-") {
+      return value === undefined || value === null || value === "" ? fallback : escapeHtml(value);
+    }
+
+    function yesNo(value) {
+      return value ? "Available" : "Missing";
+    }
+
+    function runMetric(label, value, fallback = "-") {
+      return `<div class="run-metric"><span>${escapeHtml(label)}</span><strong>${displayValue(value, fallback)}</strong></div>`;
+    }
+
+    function artifactCard(label, available, note) {
+      return `
+        <div class="artifact-card ${available ? "available" : ""}">
+          <span>${escapeHtml(label)}</span>
+          <strong>${yesNo(available)}</strong>
+          <p>${escapeHtml(note)}</p>
+        </div>
+      `;
+    }
+
+    function latestRunEmpty() {
+      latestRunContent.className = "empty-run";
+      latestRunContent.innerHTML = `
+        <h2>Latest RTL Run</h2>
+        <p>Run RTL Sim to generate a trace. Arbitrary programs produce inspection artifacts; the array-sum sample produces benchmark validation.</p>
+      `;
+    }
+
+    function artifactLink(label, href, enabled = true, routeInBody = true) {
+      if (!enabled) {
+        return "";
+      }
+      const safeLabel = escapeHtml(label);
+      const safeHref = escapeHtml(href);
+      if (routeInBody) {
+        return `<a href="${safeHref}" data-blueprint-doc data-label="${safeLabel}">${safeLabel}</a>`;
+      }
+      return `<a class="artifact-external" href="${safeHref}" target="_blank" rel="noreferrer">${safeLabel}</a>`;
+    }
+
+    function renderLatestRun(summary, result) {
+      const tb = result || summary.testbench || {};
+      const mode = summary.run_mode === "validation" ? "Benchmark validation" : "RTL inspection";
+      const statusKind = summary.status_kind || "ok";
+      const statusLabel = summary.status_label || "Trace complete";
+      const isValidation = summary.run_mode === "validation";
+      const validationMetrics = isValidation ? `
+        ${runMetric("Expected", `0x${displayValue(tb.expected_hex)}`)}
+        ${runMetric("Actual", `0x${displayValue(tb.actual_hex)}`)}
+        ${runMetric("Result address", `0x${displayValue(tb.result_addr_hex)}`)}
+      ` : "";
+      const rawLinks = [
+        artifactLink("Full HTML report", `${latestRunBase}index.html`, summary.html),
+        artifactLink("Result JSON", `${latestRunBase}result.json`, summary.report),
+        artifactLink("Summary JSON", `${latestRunBase}summary.json`, true),
+        artifactLink("Run log", `${latestRunBase}run.log`, summary.log),
+        artifactLink("VCD", `${latestRunBase}cpu_tb.vcd`, summary.vcd, false),
+        artifactLink("FST", `${latestRunBase}cpu_tb.fst`, summary.fst, false),
+        artifactLink("GTKWave layout", `${latestRunBase}cpu_trace.gtkw`, summary.gtkw, false)
+      ].filter(Boolean).join("");
+
+      latestRunContent.className = "";
+      latestRunContent.innerHTML = `
+        <h2>Latest RTL Run</h2>
+        <div class="run-status ${escapeHtml(statusKind)}">${escapeHtml(statusLabel)}</div>
+        <p>${escapeHtml(mode)} dashboard. This page summarizes the run directly from <code>summary.json</code> and <code>result.json</code>; raw files are still available below for debugging.</p>
+        <div class="run-grid">
+          ${runMetric("Cycles", tb.cycles)}
+          ${runMetric("Halt", tb.halt)}
+          ${runMetric("Final IC", tb.ic)}
+          ${runMetric("Mode", summary.run_mode || "inspection")}
+          ${validationMetrics}
+        </div>
+        <section class="run-panel">
+          <h3>Run inputs</h3>
+          <div class="run-paths">
+            <div>Program: ${displayValue(summary.program_hex)}</div>
+            <div>Data: ${displayValue(summary.data_hex)}</div>
+            <div>Data source: ${displayValue(summary.data_source, "unspecified")}</div>
+          </div>
+        </section>
+        <section class="run-panel">
+          <h3>Waveform artifacts</h3>
+          <div class="artifact-grid">
+            ${artifactCard("FST", Boolean(summary.fst), "Preferred compact waveform for Surfer or GTKWave.")}
+            ${artifactCard("VCD", Boolean(summary.vcd), "Portable raw waveform trace.")}
+            ${artifactCard("GTKWave layout", Boolean(summary.gtkw), "Curated signal layout for GTKWave.")}
+          </div>
+          <p>Use <strong>Open Waveform</strong> in the PyQt app for the full Surfer/GTKWave view.</p>
+        </section>
+        <section class="run-panel">
+          <h3>Raw artifacts</h3>
+          <p>These are for debugging and export. The readable run summary is already shown above.</p>
+          <details class="raw-artifacts">
+            <summary>Show raw links</summary>
+            <div class="run-links">${rawLinks}</div>
+          </details>
+        </section>
+      `;
+    }
+
+    async function loadLatestRun() {
+      latestRunContent.className = "empty-run";
+      latestRunContent.innerHTML = "<h2>Latest RTL Run</h2><p>Loading latest run...</p>";
+      try {
+        const response = await fetch(latestRunSummary, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const summary = await response.json();
+        let result = summary.testbench || null;
+        try {
+          const resultResponse = await fetch(`${latestRunBase}result.json`, { cache: "no-store" });
+          if (resultResponse.ok) {
+            result = await resultResponse.json();
+          }
+        } catch (_resultError) {
+          result = summary.testbench || null;
+        }
+        renderLatestRun(summary, result);
+      } catch (_error) {
+        latestRunEmpty();
+      }
+    }
 
     function stateFor(target) {
       if (!states.has(target)) {
@@ -321,6 +870,8 @@
       svgExplorer.style.display = mode === "svg" ? "block" : "none";
       svgToolbar.style.display = mode === "svg" ? "flex" : "none";
       guide.style.display = mode === "guide" ? "block" : "none";
+      latestRun.style.display = mode === "latestRun" ? "block" : "none";
+      authors.style.display = mode === "authors" ? "block" : "none";
       missing.style.display = mode === "missing" ? "block" : "none";
     }
 
@@ -361,43 +912,152 @@
       applyTransform();
     }
 
-    function select(page, button) {
-      activePage = page;
+    function slug(value) {
+      return String(value || "")
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase();
+    }
+
+    function pageId(page) {
+      if (page.id) {
+        return slug(page.id);
+      }
+      if (page.target) {
+        return slug(page.target);
+      }
+      return slug(page.label);
+    }
+
+    function routeHash(route) {
+      return `#${pageId(route)}`;
+    }
+
+    function defaultRoute() {
+      return pages.find((page) => page.target === "cpu_v1_core.svg") || pages[0];
+    }
+
+    function routeFromHash() {
+      const hash = slug(window.location.hash.replace(/^#/, ""));
+      return pages.find((item) => pageId(item) === hash) || null;
+    }
+
+    function setBackEnabled() {
+      backButton.disabled = backRoute === null;
+    }
+
+    function setActiveButton(route) {
       for (const item of nav.querySelectorAll("button")) {
         item.classList.remove("active");
       }
-      button.classList.add("active");
+      const activeId = route.parentId ? slug(route.parentId) : pageId(route);
+      const button = pageButtons.get(activeId);
+      if (button) {
+        button.classList.add("active");
+      }
+    }
 
-      if (page.type === "guide") {
+    function setDocBar(route) {
+      if (!route.dynamic) {
+        docBar.style.display = "none";
+        return;
+      }
+      docTitle.textContent = route.label || "Artifact";
+      docHint.textContent = "Loaded inside CPU Blueprint. Use Back to return.";
+      docBar.style.display = "block";
+    }
+
+    function renderRoute(route) {
+      activePage = route;
+      setActiveButton(route);
+      setDocBar(route);
+
+      if (route.type === "guide") {
         setVisible("guide");
         return;
       }
 
-      if (page.type === "svg") {
+      if (route.type === "latestRun") {
+        setVisible("latestRun");
+        loadLatestRun();
+        return;
+      }
+
+      if (route.type === "authors") {
+        setVisible("authors");
+        return;
+      }
+
+      if (route.type === "svg") {
         setVisible("svg");
         svgImage.onload = () => {
-          if (!states.has(page.target)) {
+          if (!states.has(route.target)) {
             fitSvg();
           } else {
             applyTransform();
           }
         };
         svgImage.onerror = () => setVisible("missing");
-        svgImage.src = page.target;
+        svgImage.src = route.target;
         applyTransform();
         return;
       }
 
       setVisible("doc");
-      viewer.src = page.target;
+      viewer.src = route.target;
+    }
+
+    function navigateTo(route, options = {}) {
+      renderRoute(route);
+      backRoute = null;
+      if (route.dynamic && route.parentId) {
+        backRoute = pages.find((item) => pageId(item) === slug(route.parentId)) || null;
+      }
+      history.replaceState({ blueprintRoute: true, route }, "", routeHash(route));
+      setBackEnabled();
+    }
+
+    function restoreRouteFromState(state) {
+      if (state && state.blueprintRoute && state.route) {
+        navigateTo(state.route);
+        return;
+      }
+      navigateTo(routeFromHash() || defaultRoute());
+    }
+
+    function openBodyDoc(label, target, parentId = "latest-rtl-run") {
+      navigateTo({
+        type: "doc",
+        id: `artifact:${target}`,
+        label,
+        target,
+        parentId,
+        dynamic: true
+      });
     }
 
     for (const page of pages) {
       const button = document.createElement("button");
       button.textContent = page.label;
-      button.addEventListener("click", () => select(page, button));
+      button.addEventListener("click", () => navigateTo(page));
       nav.appendChild(button);
+      pageButtons.set(pageId(page), button);
     }
+
+    backButton.addEventListener("click", () => {
+      if (backRoute) {
+        navigateTo(backRoute);
+      }
+    });
+
+    latestRun.addEventListener("click", (event) => {
+      const link = event.target.closest("a[data-blueprint-doc]");
+      if (!link) {
+        return;
+      }
+      event.preventDefault();
+      openBodyDoc(link.dataset.label || link.textContent.trim(), link.getAttribute("href"));
+    });
 
     document.getElementById("zoomIn").addEventListener("click", () => zoomBy(1.2));
     document.getElementById("zoomOut").addEventListener("click", () => zoomBy(1 / 1.2));
@@ -442,8 +1102,18 @@
       }
     });
 
-    const firstSvgButton = nav.querySelectorAll("button")[1];
-    select(pages[1], firstSvgButton);
+    window.addEventListener("popstate", (event) => {
+      restoreRouteFromState(event.state);
+    });
+
+    window.addEventListener("hashchange", () => {
+      const route = routeFromHash();
+      if (route && (!activePage || pageId(activePage) !== pageId(route))) {
+        navigateTo(route);
+      }
+    });
+
+    navigateTo(routeFromHash() || defaultRoute());
   </script>
 </body>
 </html>
