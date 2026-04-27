@@ -207,33 +207,85 @@ The most important refinement was making the opcode field constant. In the imple
 
 The second refinement was replacing partial destination-register immediate loads with an immediate assembly register, \texttt{IMR}. The processor now uses \texttt{LIL}, \texttt{LIH}, \texttt{LILL}, and \texttt{LIHH} to load four byte lanes of \texttt{IMR}. A normal \texttt{MOV} then transfers the assembled value into a general-purpose or special-purpose register. It takes a few simple instructions, but it avoids a larger immediate datapath and keeps the instruction format tidy.
 
-Memory addressing also changed. The older ISA used \texttt{MEMOFF + imm8} for \texttt{LOAD} and \texttt{STOR}. The implemented RTL uses \texttt{MEMOFF + Rb}. This makes indexed memory access natural: a program can keep a pointer in a register, load or store through it, then increment the pointer using normal ALU instructions. The array-sum benchmark benefits directly from this choice.
+Memory addressing also changed. The older ISA used \texttt{MEMOFF + imm8} for \texttt{LOAD} and \texttt{STOR}. The implemented RTL uses \texttt{MEMOFF + Rb}. This makes indexed memory access natural: a program can keep a pointer in a register, load or store through it, then increment the pointer using normal ALU instructions. The array-sum benchmark benefits directly from this choice. Table~\ref{tab:format_comparison} shows the encoding shift, while Tables~\ref{tab:old_isa_full} and~\ref{tab:new_isa_full} give the full old and new instruction sets.
 
 \begin{table}[H]
 \centering
-\caption{Original ISA structure retained for the Logisim compatibility track.}
-\begin{tabularx}{\linewidth}{|l|l|Y|}
+\caption{Instruction-format change from the original ISA to the RTL-facing ISA.}
+\begin{tabularx}{\linewidth}{|l|Y|Y|}
 \hline
-\textbf{Class} & \textbf{Format} & \textbf{Instructions} \\ \hline
-System & \texttt{opcode7, Ra, Rb} & \texttt{HLT}, \texttt{NOP}; register fields are not functionally used. \\ \hline
-Register & \texttt{opcode7, Ra, Rb} & \texttt{NOT}, \texttt{OR}, \texttt{AND}, \texttt{XOR}, \texttt{SHL}, \texttt{SHR}, \texttt{SAR}, \texttt{ADD}, \texttt{SUB}, \texttt{MOV}. \\ \hline
-Immediate & \texttt{opcode3, Ra, imm8} & \texttt{LIL}, \texttt{LIH}, \texttt{LOAD}, \texttt{STOR}. \\ \hline
-Jump & \texttt{opcode4, imm11} & \texttt{JMP}, \texttt{JMPL}, \texttt{JPEQ}, \texttt{JPBLW}. \\ \hline
+\textbf{Instruction Class} & \textbf{Original Part 1 Format} & \textbf{Refined RTL Format} \\ \hline
+Register and system & \texttt{[14:8] opcode7, [7:4] Ra, [3:0] Rb} & \texttt{[14:8] opcode7, [7:4] Rb, [3:0] Ra} \\ \hline
+Jump & \texttt{[14:11] opcode4, [10:0] imm11} & \texttt{[14:8] opcode7, [7:0] imm8} \\ \hline
+Immediate and memory & \texttt{[14:12] opcode3, [11:8] Ra, [7:0] imm8} & \texttt{[14:8] opcode7, [7:0] imm8} for immediate loads; \texttt{[14:8] opcode7, [7:4] Rb, [3:0] Ra} for memory. \\ \hline
 \end{tabularx}
+\label{tab:format_comparison}
 \end{table}
 
 \begin{table}[H]
 \centering
-\caption{Refined ISA structure implemented by the Verilog RTL.}
+\small
+\caption{Original Part 1 ISA retained for the Logisim compatibility track.}
+\begin{tabularx}{\linewidth}{|l|l|l|Y|}
+\hline
+\textbf{Class} & \textbf{Opcode} & \textbf{Mnemonic} & \textbf{Behavior} \\ \hline
+System & \texttt{0000000} & \texttt{HLT} & Halt CPU operation. \\ \hline
+System & \texttt{0000001} & \texttt{NOP} & No architectural action. \\ \hline
+Register & \texttt{0010000} & \texttt{NOT Ra} & Bitwise inverse of \texttt{Ra} is written to \texttt{Ra}. \\ \hline
+Register & \texttt{0010001} & \texttt{OR Ra, Rb} & \texttt{Ra = Ra OR Rb}. \\ \hline
+Register & \texttt{0010010} & \texttt{AND Ra, Rb} & \texttt{Ra = Ra AND Rb}. \\ \hline
+Register & \texttt{0010011} & \texttt{XOR Ra, Rb} & \texttt{Ra = Ra XOR Rb}. \\ \hline
+Register & \texttt{0010100} & \texttt{SHL Ra} & \texttt{Ra = Ra} $\ll$ \texttt{SHC}. \\ \hline
+Register & \texttt{0010101} & \texttt{SHR Ra} & \texttt{Ra = Ra} $\gg$ \texttt{SHC}. \\ \hline
+Register & \texttt{0010110} & \texttt{SAR Ra} & Arithmetic right shift of \texttt{Ra} by \texttt{SHC}. \\ \hline
+Register & \texttt{0010111} & \texttt{ADD Ra, Rb} & \texttt{Ra = Ra + Rb}. \\ \hline
+Register & \texttt{0011000} & \texttt{SUB Ra, Rb} & \texttt{Ra = Ra - Rb}. \\ \hline
+Register & \texttt{0011001} & \texttt{MOV Ra, Rb} & \texttt{Ra = Rb}. \\ \hline
+Jump & \texttt{0100} & \texttt{JMP imm11} & $\mathrm{IC} = \mathrm{IC} + (\mathrm{imm11} \ll 1)$. \\ \hline
+Jump & \texttt{0101} & \texttt{JMPL imm11} & $\mathrm{IC} = \mathrm{IC} + (\mathrm{imm11} \ll 1) + \mathrm{JMPOFF}$. \\ \hline
+Jump & \texttt{0110} & \texttt{JPEQ imm11} & If \texttt{CMPA == CMPB}, execute the long-jump update. \\ \hline
+Jump & \texttt{0111} & \texttt{JPBLW imm11} & If \texttt{CMPA} $<$ \texttt{CMPB}, execute the long-jump update. \\ \hline
+Immediate & \texttt{100} & \texttt{LIL Ra, imm8} & Set \texttt{Ra[7:0] = imm8}. \\ \hline
+Immediate & \texttt{101} & \texttt{LIH Ra, imm8} & Set \texttt{Ra[15:8] = imm8}. \\ \hline
+Immediate & \texttt{110} & \texttt{LOAD Ra, imm8} & \texttt{Ra = MEM[imm8 + MEMOFF]} as a 28-bit word. \\ \hline
+Immediate & \texttt{111} & \texttt{STOR Ra, imm8} & \texttt{MEM[imm8 + MEMOFF] = Ra} as a 28-bit word. \\ \hline
+\end{tabularx}
+\label{tab:old_isa_full}
+\end{table}
+
+In the original register map, selector \texttt{1011} was \texttt{SHC}, the shift-count register used by \texttt{SHL}, \texttt{SHR}, and \texttt{SAR}. In the refined RTL map, that slot becomes \texttt{IMR}, and shifts use the normal \texttt{Rb} source register. That is a small ISA change, but it removes a special operand path from the ALU side of the datapath.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Refined ISA implemented by the Verilog RTL.}
 \begin{tabularx}{\linewidth}{|l|l|Y|}
 \hline
-\textbf{Class} & \textbf{Opcode Range} & \textbf{Implemented Behavior} \\ \hline
-System & \texttt{0000000}, \texttt{0000001} & \texttt{HLT} stops IC and state updates; \texttt{NOP} advances IC without architectural writes. \\ \hline
-Register/ALU & \texttt{0010000}--\texttt{0011001} & \texttt{Ra = f(Ra, Rb)} for logic, shifts, arithmetic, and \texttt{MOV}. \\ \hline
-Immediate assembly & \texttt{0011010}--\texttt{0011101} & \texttt{LIL}, \texttt{LIH}, \texttt{LILL}, and \texttt{LIHH} write byte lanes of \texttt{IMR}. \\ \hline
-Memory & \texttt{0011110}, \texttt{0011111} & \texttt{LOAD Ra, Rb} and \texttt{STOR Ra, Rb} use effective address \texttt{MEMOFF + Rb}. \\ \hline
-Jump/branch & \texttt{1000000}--\texttt{1000011} & PC-relative jumps use signed \texttt{imm8}; long and conditional forms add \texttt{JMPOFF}. \\ \hline
+\textbf{Opcode7} & \textbf{Mnemonic} & \textbf{Implemented Behavior} \\ \hline
+\texttt{0000000} & \texttt{HLT} & Halt CPU operation and freeze state updates. \\ \hline
+\texttt{0000001} & \texttt{NOP} & No architectural action; normal IC update still applies. \\ \hline
+\texttt{0010000} & \texttt{NOT Ra} & Bitwise inverse of \texttt{Ra} is written to \texttt{Ra}. \\ \hline
+\texttt{0010001} & \texttt{OR Ra, Rb} & \texttt{Ra = Ra OR Rb}. \\ \hline
+\texttt{0010010} & \texttt{AND Ra, Rb} & \texttt{Ra = Ra AND Rb}. \\ \hline
+\texttt{0010011} & \texttt{XOR Ra, Rb} & \texttt{Ra = Ra XOR Rb}. \\ \hline
+\texttt{0010100} & \texttt{SHL Ra, Rb} & \texttt{Ra = Ra} $\ll$ \texttt{Rb}. \\ \hline
+\texttt{0010101} & \texttt{SHR Ra, Rb} & \texttt{Ra = Ra} $\gg$ \texttt{Rb}. \\ \hline
+\texttt{0010110} & \texttt{SAR Ra, Rb} & Arithmetic right shift of \texttt{Ra} by \texttt{Rb}. \\ \hline
+\texttt{0010111} & \texttt{ADD Ra, Rb} & \texttt{Ra = Ra + Rb}. \\ \hline
+\texttt{0011000} & \texttt{SUB Ra, Rb} & \texttt{Ra = Ra - Rb}. \\ \hline
+\texttt{0011001} & \texttt{MOV Ra, Rb} & \texttt{Ra = Rb}. \\ \hline
+\texttt{0011010} & \texttt{LIL imm8} & Set \texttt{IMR[7:0] = imm8}. \\ \hline
+\texttt{0011011} & \texttt{LIH imm8} & Set \texttt{IMR[15:8] = imm8}. \\ \hline
+\texttt{0011100} & \texttt{LILL imm8} & Set \texttt{IMR[23:16] = imm8}. \\ \hline
+\texttt{0011101} & \texttt{LIHH imm8} & Set \texttt{IMR[27:24] = imm8[3:0]}. \\ \hline
+\texttt{0011110} & \texttt{LOAD Ra, Rb} & \texttt{Ra = MEM[Rb + MEMOFF]} as a 28-bit word. \\ \hline
+\texttt{0011111} & \texttt{STOR Ra, Rb} & \texttt{MEM[Rb + MEMOFF] = Ra} as a 28-bit word. \\ \hline
+\texttt{1000000} & \texttt{JMP imm8} & $\mathrm{IC} = \mathrm{IC} + (\operatorname{signext}(\mathrm{imm8}) \ll 1)$. \\ \hline
+\texttt{1000001} & \texttt{JMPL imm8} & $\mathrm{IC} = \mathrm{IC} + ((\operatorname{signext}(\mathrm{imm8}) + \mathrm{JMPOFF}) \ll 1)$. \\ \hline
+\texttt{1000010} & \texttt{JPEQ imm8} & If \texttt{CMPA == CMPB}, execute the long-jump update. \\ \hline
+\texttt{1000011} & \texttt{JPBLW imm8} & If \texttt{CMPA} $<$ \texttt{CMPB}, execute the long-jump update. \\ \hline
 \end{tabularx}
+\label{tab:new_isa_full}
 \end{table}
 
 \subsection{Why The Refinement Helped}
