@@ -11,6 +11,7 @@ import sys
 import textwrap
 import traceback
 import faulthandler
+from dataclasses import dataclass
 from pathlib import Path
 
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -52,11 +53,35 @@ else:
         WORD_MASK,
     )
 
-SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
-    # Add new samples here as: ("Sample Name", """assembly code""")
-    (
-        "Counter Loop",
-        """\
+@dataclass(frozen=True)
+class SampleDefinition:
+    name: str
+    data_hex_path: Path
+    mem_view_start: int = 0
+    source_text: str | None = None
+    source_path: Path | None = None
+    rtl_check_result: str = "0"
+    rtl_expected: str = "25"
+    rtl_result_addr: str = "0000200"
+    rtl_data_source: str = "Sample data image"
+
+    def source(self) -> str:
+        if self.source_text is not None:
+            return textwrap.dedent(self.source_text).strip() + "\n"
+        if self.source_path is not None:
+            return self.source_path.read_text(encoding="utf-8").strip() + "\n"
+        raise ValueError(f"Sample {self.name!r} is missing assembly source.")
+
+
+EMPTY_DATA_HEX = resource_path("src", "rtl", "testbench", "empty_data.hex")
+ARRAY_SUM_SOURCE = resource_path("src", "rtl", "testbench", "array_sum.s")
+ARRAY_SUM_DATA_HEX = resource_path("src", "rtl", "testbench", "array_sum_data.hex")
+
+SAMPLE_DEFINITIONS: list[SampleDefinition] = [
+    SampleDefinition(
+        name="Counter Loop",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Count down from 5 to 0 and halt.
         LIL 5
         MOV R0, IMR
@@ -74,9 +99,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Shift + Store",
-        """\
+    SampleDefinition(
+        name="Shift + Store",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Build a value, shift it, and store to memory.
         LIL 10
         MOV R0, IMR
@@ -90,9 +116,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Bitwise Demo",
-        """\
+    SampleDefinition(
+        name="Bitwise Demo",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Basic boolean ops.
         LIL 15
         MOV R0, IMR
@@ -104,9 +131,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Addition Chain",
-        """\
+    SampleDefinition(
+        name="Addition Chain",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Build R0 = 1 + 2 + 3.
         LIL 1
         MOV R0, IMR
@@ -119,9 +147,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Shift Register",
-        """\
+    SampleDefinition(
+        name="Shift Register",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Demonstrate register-controlled left/right shifts.
         LIL 12
         MOV R0, IMR
@@ -134,9 +163,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Loop Until Zero",
-        """\
+    SampleDefinition(
+        name="Loop Until Zero",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Repeatedly decrement R0 until it drops below 1.
         LIL 6
         MOV R0, IMR
@@ -154,9 +184,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Store 16-bit Value",
-        """\
+    SampleDefinition(
+        name="Store 16-bit Value",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Compose a 16-bit literal into IMR, then copy it to R0.
         LIL 0x34
         LIH 0x12
@@ -164,9 +195,10 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         HLT
         """,
     ),
-    (
-        "Store a 28-bit Immediate",
-    """\
+    SampleDefinition(
+        name="Store a 28-bit Immediate",
+        data_hex_path=EMPTY_DATA_HEX,
+        source_text="""\
         // Store a full 28-bit number in R0 = 0xEABCDFE
         LIL 0xFE
         LIH 0xCD
@@ -174,78 +206,22 @@ SAMPLE_CODE_DEFINITIONS: list[tuple[str, str]] = [
         LIHH 0x0E
         MOV R0, IMR
         HLT
-    """
-    ),
-    (
-        "Array Sum Benchmark",
-        """\
-        // Assignment benchmark:
-        // N = 5
-        // ARRAY = [3, 7, 2, 9, 4]
-        // Expected RESULT = 25
-        //
-        // Data memory layout:
-        // LEN    = 0x0100
-        // ARRAY  = 0x0104
-        // RESULT = 0x0200
-        //
-        // R0 = sum
-        // R1 = LEN pointer
-        // R2 = len
-        // R3 = index
-        // R4 = 1
-        // R5 = 4-byte word stride
-        // R6 = array/result pointer
-        // R7 = current element
-
-        LIL 0x00
-        LIH 0x01
-        MOV R1, IMR
-        LOAD R2, R1
-
-        LIL 0x00
-        LIH 0x00
-        MOV R0, IMR
-        MOV R3, IMR
-
-        LIL 0x01
-        LIH 0x00
-        MOV R4, IMR
-
-        LIL 0x04
-        LIH 0x00
-        MOV R5, IMR
-
-        LIL 0x04
-        LIH 0x01
-        MOV R6, IMR
-
-        loop:
-        MOV CMPA, R3
-        MOV CMPB, R2
-        JPBLW body
-        JMP done
-
-        body:
-        LOAD R7, R6
-        ADD R0, R7
-        ADD R6, R5
-        ADD R3, R4
-        JMP loop
-
-        done:
-        LIL 0x00
-        LIH 0x02
-        MOV R6, IMR
-        STOR R0, R6
-        HLT
         """,
-    )
+    ),
+    SampleDefinition(
+        name="Array Sum Benchmark",
+        source_path=ARRAY_SUM_SOURCE,
+        data_hex_path=ARRAY_SUM_DATA_HEX,
+        mem_view_start=0x0100,
+        rtl_check_result="1",
+        rtl_expected="25",
+        rtl_result_addr="0000200",
+        rtl_data_source="Array Sum Benchmark data",
+    ),
 ]
 
-SAMPLE_CODES: dict[str, str] = {
-    name: textwrap.dedent(source).strip() + "\n"
-    for name, source in SAMPLE_CODE_DEFINITIONS
+SAMPLE_DEFINITIONS_BY_NAME = {
+    sample.name: sample for sample in SAMPLE_DEFINITIONS
 }
 
 
@@ -819,7 +795,7 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.addr_to_line = {}
         self.settings = QtCore.QSettings("AMBProcessor", "AMBAssembler")
         self.current_file: str | None = None
-        self.current_sample_name: str | None = None
+        self.current_sample: SampleDefinition | None = None
         self.last_rtl_result: dict[str, object] | None = None
         self.html_windows: dict[Path, QtWidgets.QMainWindow] = {}
         self.rtl_data_hex_override: Path | None = None
@@ -1206,8 +1182,8 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         )
         self.sample_codes_combo.installEventFilter(self)
         self.sample_codes_combo.addItem(" Sample Code")
-        for sample_name in SAMPLE_CODES:
-            self.sample_codes_combo.addItem(sample_name)
+        for sample in SAMPLE_DEFINITIONS:
+            self.sample_codes_combo.addItem(sample.name)
         self.sample_codes_combo.activated.connect(self.load_sample_code)
         layout.addWidget(self.sample_codes_combo)
         add_separator()
@@ -1889,14 +1865,41 @@ Comments: // ; #
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("@0000\n00\n@0200\n00\n00\n00\n00\n", encoding="utf-8")
 
-    def _select_rtl_data_hex(self, out_dir: Path) -> tuple[Path, str, str]:
-        if self.current_sample_name == "Array Sum Benchmark":
-            benchmark_data = resource_path("src", "rtl", "testbench", "array_sum_data.hex")
-            if benchmark_data.exists():
-                return benchmark_data, "1", "25"
+    def _current_sample_data_hex(self) -> Path | None:
+        if self.current_sample is None:
+            return None
+        return self.current_sample.data_hex_path
 
+    def _prime_memory_view_for_sample(self) -> None:
+        if self.current_sample is None:
+            self.mem_start.setText("0x0000000")
+            return
+        self.mem_start.setText(f"0x{self.current_sample.mem_view_start:07X}")
+
+    def _load_current_sample_dmem(self) -> None:
+        data_hex = self._current_sample_data_hex()
+        if data_hex is None:
+            return
+        self.cpu.load_data_hex(data_hex)
+
+    def _rtl_data_source_label(self, data_hex: Path) -> str:
+        if self.rtl_data_hex_override is not None and data_hex == self.rtl_data_hex_override:
+            return "Custom data.hex"
+        if self.current_sample is not None and data_hex == self.current_sample.data_hex_path:
+            return self.current_sample.rtl_data_source
+        return "Generated default data.hex"
+
+    def _select_rtl_data_hex(self, out_dir: Path) -> tuple[Path, str, str]:
         if self.rtl_data_hex_override is not None and self.rtl_data_hex_override.exists():
-            return self.rtl_data_hex_override, "0", "25"
+            expected = self.current_sample.rtl_expected if self.current_sample is not None else "25"
+            return self.rtl_data_hex_override, "0", expected
+
+        if self.current_sample is not None and self.current_sample.data_hex_path.exists():
+            return (
+                self.current_sample.data_hex_path,
+                self.current_sample.rtl_check_result,
+                self.current_sample.rtl_expected,
+            )
 
         data_hex = out_dir / "data.hex"
         self._write_default_data_hex(data_hex)
@@ -1904,11 +1907,8 @@ Comments: // ; #
 
     def show_rtl_options_menu(self, anchor: QtWidgets.QWidget) -> None:
         menu = QtWidgets.QMenu(self)
-        current_text = (
-            f"Data image: {self.rtl_data_hex_override}"
-            if self.rtl_data_hex_override is not None
-            else "Data image: generated default"
-        )
+        current_data_hex = self.rtl_data_hex_override or self._current_sample_data_hex()
+        current_text = f"Data image: {current_data_hex}" if current_data_hex is not None else "Data image: generated default"
         current_action = menu.addAction(current_text)
         current_action.setEnabled(False)
         viewer_action = menu.addAction(f"Waveform viewer: {self.waveform_viewer_title()}")
@@ -2112,6 +2112,8 @@ Comments: // ; #
         start_dir = Path(self.current_file).parent if self.current_file else Path.home()
         if self.rtl_data_hex_override is not None:
             start_dir = self.rtl_data_hex_override.parent
+        elif self.current_sample is not None:
+            start_dir = self.current_sample.data_hex_path.parent
         filename = self._get_open_filename(
             "Choose RTL data image",
             str(start_dir),
@@ -2124,7 +2126,11 @@ Comments: // ; #
 
     def clear_rtl_data_hex(self) -> None:
         self.rtl_data_hex_override = None
-        self.statusBar().showMessage("RTL data image cleared; using generated default.", 5000)
+        fallback = self._current_sample_data_hex()
+        if fallback is not None:
+            self.statusBar().showMessage(f"RTL data image cleared; using sample image {fallback}.", 5000)
+        else:
+            self.statusBar().showMessage("RTL data image cleared; using generated default.", 5000)
 
     @staticmethod
     def _rtl_status_text(result: dict[str, object]) -> str:
@@ -2167,15 +2173,7 @@ Comments: // ; #
                 check_result=check_result,
                 expected=expected,
                 schematic=False,
-                data_source=(
-                    "Array Sum Benchmark data"
-                    if check_result == "1"
-                    else (
-                        "Custom data.hex"
-                        if self.rtl_data_hex_override is not None and self.rtl_data_hex_override.exists()
-                        else "Generated default data.hex"
-                    )
-                ),
+                data_source=self._rtl_data_source_label(data_hex),
             )
             self.last_rtl_result = result
             self.statusBar().showMessage(self._rtl_status_text(result), 7000)
@@ -2265,31 +2263,43 @@ Comments: // ; #
     def new_file(self) -> None:
         self.editor.clear()
         self.current_file = None
-        self.current_sample_name = None
+        self.current_sample = None
+        self.program = None
+        self.addr_to_line = {}
+        self.cpu.reset()
+        self._last_reg_changes = set()
+        self._last_mem_changes = set()
+        self.mem_start.setText("0x0000000")
+        self.update_register_view()
+        self.update_memory_view()
+        self._sync_pulse()
+        self.highlight_line(None)
         self.statusBar().showMessage("New file", 2000)
 
     def load_sample_code(self, index: int) -> None:
         if index <= 0:
             return
         sample_name = self.sample_codes_combo.itemText(index)
-        sample_source = SAMPLE_CODES.get(sample_name)
-        if sample_source is None:
+        sample = SAMPLE_DEFINITIONS_BY_NAME.get(sample_name)
+        if sample is None:
             return
         if self.timer.isActive():
             self.timer.stop()
-        self.editor.setPlainText(sample_source.strip() + "\n")
+        self.editor.setPlainText(sample.source())
         self.current_file = None
-        self.current_sample_name = sample_name
+        self.current_sample = sample
         self.program = None
         self.addr_to_line = {}
         self.cpu.reset()
+        self._load_current_sample_dmem()
         self._last_reg_changes = set()
         self._last_mem_changes = set()
+        self._prime_memory_view_for_sample()
         self.update_register_view()
         self.update_memory_view()
         self._sync_pulse()
         self.highlight_line(None)
-        self.statusBar().showMessage(f"Loaded sample: {sample_name}", 3000)
+        self.statusBar().showMessage(f"Loaded sample: {sample.name}", 3000)
         self.sample_codes_combo.setCurrentIndex(0)
 
     def open_file(self) -> None:
@@ -2303,7 +2313,17 @@ Comments: // ; #
         with open(path, "r", encoding="utf-8") as handle:
             self.editor.setPlainText(handle.read())
         self.current_file = path
-        self.current_sample_name = None
+        self.current_sample = None
+        self.program = None
+        self.addr_to_line = {}
+        self.cpu.reset()
+        self._last_reg_changes = set()
+        self._last_mem_changes = set()
+        self.mem_start.setText("0x0000000")
+        self.update_register_view()
+        self.update_memory_view()
+        self._sync_pulse()
+        self.highlight_line(None)
         self.statusBar().showMessage(f"Opened {path}", 3000)
 
     def save_file(self) -> None:
@@ -2490,6 +2510,7 @@ Comments: // ; #
         self.addr_to_line = program.addr_to_line
         self.cpu.reset()
         self.cpu.load_program(program.words)
+        self._load_current_sample_dmem()
         self._last_reg_changes = set()
         self._last_mem_changes = set()
         self.update_register_view()
@@ -2521,8 +2542,11 @@ Comments: // ; #
             self.cpu.load_program(self.program.words)
         else:
             self.cpu.reset()
+        self._load_current_sample_dmem()
         self._last_reg_changes = set()
         self._last_mem_changes = set()
+        if self.current_sample is not None:
+            self._prime_memory_view_for_sample()
         self.update_register_view()
         self.update_memory_view()
         self._sync_pulse()
