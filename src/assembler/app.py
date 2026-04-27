@@ -1873,11 +1873,7 @@ Comments: // ; #
         window.activateWindow()
 
     def open_cpu_blueprint(self, fragment: str | None = None) -> None:
-        after_load_script = (
-            self._latest_rtl_injection_script()
-            if fragment == "latest-rtl-run"
-            else None
-        )
+        after_load_script = self._latest_rtl_injection_script()
         self._open_local_html(docs_index_path(), "AMB CPU Blueprint", fragment, after_load_script)
 
     def open_cpu_docs(self) -> None:
