@@ -765,7 +765,21 @@
       return `<a class="artifact-external" href="${safeHref}" target="_blank" rel="noreferrer">${safeLabel}</a>`;
     }
 
-    function renderLatestRun(summary, result) {
+    function latestRunInjectedPayload() {
+      const payload = window.__AMB_LATEST_RTL_RUN__;
+      return payload && typeof payload === "object" ? payload : null;
+    }
+
+    function renderInjectedLatestRun() {
+      const payload = latestRunInjectedPayload();
+      if (!payload || !payload.summary) {
+        return false;
+      }
+      renderLatestRun(payload.summary, payload.result || payload.summary.testbench || null, payload.artifact_urls || {});
+      return true;
+    }
+
+    function renderLatestRun(summary, result, artifactUrls = {}) {
       const tb = result || summary.testbench || {};
       const mode = summary.run_mode === "validation" ? "Benchmark validation" : "RTL inspection";
       const statusKind = summary.status_kind || "ok";
@@ -777,13 +791,13 @@
         ${runMetric("Result address", `0x${displayValue(tb.result_addr_hex)}`)}
       ` : "";
       const rawLinks = [
-        artifactLink("Full HTML report", `${latestRunBase}index.html`, summary.html),
-        artifactLink("Result JSON", `${latestRunBase}result.json`, summary.report),
-        artifactLink("Summary JSON", `${latestRunBase}summary.json`, true),
-        artifactLink("Run log", `${latestRunBase}run.log`, summary.log),
-        artifactLink("VCD", `${latestRunBase}cpu_tb.vcd`, summary.vcd, false),
-        artifactLink("FST", `${latestRunBase}cpu_tb.fst`, summary.fst, false),
-        artifactLink("GTKWave layout", `${latestRunBase}cpu_trace.gtkw`, summary.gtkw, false)
+        artifactLink("Full HTML report", artifactUrls.html || `${latestRunBase}index.html`, summary.html),
+        artifactLink("Result JSON", artifactUrls.result_json || `${latestRunBase}result.json`, summary.report),
+        artifactLink("Summary JSON", artifactUrls.summary_json || `${latestRunBase}summary.json`, true),
+        artifactLink("Run log", artifactUrls.run_log || `${latestRunBase}run.log`, summary.log),
+        artifactLink("VCD", artifactUrls.vcd || `${latestRunBase}cpu_tb.vcd`, summary.vcd, false),
+        artifactLink("FST", artifactUrls.fst || `${latestRunBase}cpu_tb.fst`, summary.fst, false),
+        artifactLink("GTKWave layout", artifactUrls.gtkw || `${latestRunBase}cpu_trace.gtkw`, summary.gtkw, false)
       ].filter(Boolean).join("");
 
       latestRunContent.className = "";
@@ -829,6 +843,9 @@
     async function loadLatestRun() {
       latestRunContent.className = "empty-run";
       latestRunContent.innerHTML = "<h2>Latest RTL Run</h2><p>Loading latest run...</p>";
+      if (renderInjectedLatestRun()) {
+        return;
+      }
       try {
         const response = await fetch(latestRunSummary, { cache: "no-store" });
         if (!response.ok) {
@@ -849,6 +866,12 @@
         latestRunEmpty();
       }
     }
+
+    window.__AMB_RENDER_LATEST_RTL_RUN__ = () => {
+      if (activePage && activePage.type === "latestRun") {
+        renderInjectedLatestRun();
+      }
+    };
 
     function stateFor(target) {
       if (!states.has(target)) {
