@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from .isa import (
@@ -90,6 +91,48 @@ class Memory:
         self.write_byte((addr + 2) & ADDR_MASK, b2)
         self.write_byte((addr + 3) & ADDR_MASK, b3)
 
+    def load_hex(self, path: str | Path) -> None:
+        image_path = Path(path)
+        entries: list[tuple[int, int]] = []
+        addr = 0
+
+        for line_no, raw_line in enumerate(image_path.read_text(encoding="utf-8").splitlines(), start=1):
+            line = raw_line
+            for marker in ("//", "#", ";"):
+                line = line.split(marker, 1)[0]
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("@"):
+                try:
+                    addr = int(line[1:], 16) & ADDR_MASK
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{image_path}:{line_no}: invalid address directive {line!r}"
+                    ) from exc
+                continue
+
+            try:
+                value = int(line, 16)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{image_path}:{line_no}: invalid data byte {line!r}"
+                ) from exc
+
+            if not 0 <= value <= 0xFF:
+                raise ValueError(
+                    f"{image_path}:{line_no}: data byte out of range {line!r}"
+                )
+
+            entries.append((addr, value))
+            addr = (addr + 1) & ADDR_MASK
+
+        self.clear()
+        for entry_addr, value in entries:
+            self.write_byte(entry_addr, value)
+        self.clear_dirty()
+
 
 @dataclass
 class ExecResult:
@@ -122,6 +165,9 @@ class CPU:
         self.imem.clear_dirty()
         self.dmem.clear_dirty()
         self.registers[REG_IC] = start_addr & ADDR_MASK
+
+    def load_data_hex(self, path: str | Path) -> None:
+        self.dmem.load_hex(path)
 
     def step(self) -> ExecResult:
         if self.halted:
