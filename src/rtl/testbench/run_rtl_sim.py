@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import ctypes
 import html
 import json
 import os
@@ -116,6 +118,88 @@ def tool_environment(oss_root: Path | None) -> dict[str, str] | None:
     return env
 
 
+def _get_windows_dll_directory() -> str | None:
+    if os.name != "nt":
+        return None
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetDllDirectoryW.argtypes = [ctypes.c_uint32, ctypes.c_wchar_p]
+    kernel32.GetDllDirectoryW.restype = ctypes.c_uint32
+
+    size = 32768
+    buffer = ctypes.create_unicode_buffer(size)
+    length = kernel32.GetDllDirectoryW(size, buffer)
+    if length == 0:
+        return None
+    if length >= size:
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        length = kernel32.GetDllDirectoryW(length + 1, buffer)
+        if length == 0:
+            return None
+    return buffer.value or None
+
+
+def _set_windows_dll_directory(path: str | None) -> None:
+    if os.name != "nt":
+        return
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.SetDllDirectoryW.argtypes = [ctypes.c_wchar_p]
+    kernel32.SetDllDirectoryW.restype = ctypes.c_bool
+    if not kernel32.SetDllDirectoryW(path):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+@contextlib.contextmanager
+def clean_child_dll_search():
+    """Stop PyInstaller's DLL directory override from leaking into child tools."""
+    if os.name != "nt":
+        yield
+        return
+
+    previous = _get_windows_dll_directory()
+    _set_windows_dll_directory(None)
+    try:
+        yield
+    finally:
+        _set_windows_dll_directory(previous)
+
+
+def _startup_options(*, hide_console: bool) -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+
+    options: dict[str, object] = {}
+    if hide_console:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        options["startupinfo"] = startupinfo
+        options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return options
+
+
+def tool_working_directory(cwd: Path, oss_root: Path | None) -> Path:
+    if os.name == "nt" and getattr(sys, "frozen", False) and oss_root is not None and oss_root.exists():
+        return oss_root
+    return cwd
+
+
+def format_returncode(returncode: int) -> str:
+    if returncode < 0:
+        return f"{returncode} (0x{returncode & 0xFFFFFFFF:08X})"
+    if returncode >= 256:
+        return f"{returncode} (0x{returncode:08X})"
+    return str(returncode)
+
+
+def _path_head(env: dict[str, str] | None, max_parts: int = 4) -> str:
+    raw_path = (env or os.environ).get("PATH", "")
+    if not raw_path:
+        return ""
+    return os.pathsep.join(raw_path.split(os.pathsep)[:max_parts])
+
+
 def command_for_tool(tool: str, args: list[str], oss_root: Path | None) -> tuple[list[str] | str, bool]:
     tool_candidate = Path(tool)
     if tool_candidate.exists():
@@ -129,6 +213,27 @@ def command_for_tool(tool: str, args: list[str], oss_root: Path | None) -> tuple
     return ["cmd.exe", "/d", "/s", "/c", f'call "{env_bat}" && {cmdline}'], False
 
 
+def popen_tool(
+    tool: str,
+    args: list[str],
+    cwd: Path,
+    oss_root: Path | None,
+    *,
+    hide_console: bool = False,
+) -> subprocess.Popen:
+    cmd, use_shell = command_for_tool(tool, args, oss_root)
+    env = tool_environment(oss_root)
+    actual_cwd = tool_working_directory(cwd, oss_root)
+    with clean_child_dll_search():
+        return subprocess.Popen(
+            cmd,
+            cwd=actual_cwd,
+            env=env,
+            shell=use_shell,
+            **_startup_options(hide_console=hide_console),
+        )
+
+
 def run_tool(
     tool: str,
     args: list[str],
@@ -137,23 +242,34 @@ def run_tool(
     oss_root: Path | None,
 ) -> subprocess.CompletedProcess[str]:
     cmd, use_shell = command_for_tool(tool, args, oss_root)
-    proc = subprocess.run(
-        cmd,
-        cwd=cwd,
-        env=tool_environment(oss_root),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        shell=use_shell,
-    )
+    env = tool_environment(oss_root)
+    actual_cwd = tool_working_directory(cwd, oss_root)
+    with clean_child_dll_search():
+        proc = subprocess.run(
+            cmd,
+            cwd=actual_cwd,
+            env=env,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            shell=use_shell,
+            **_startup_options(hide_console=True),
+        )
     printable = cmd if isinstance(cmd, str) else " ".join(cmd)
     with log_file.open("a", encoding="utf-8") as handle:
         handle.write("$ " + printable + "\n")
+        handle.write(f"[cwd {actual_cwd}]\n")
+        if oss_root is not None:
+            handle.write(f"[oss_root {oss_root}]\n")
+        path_head = _path_head(env)
+        if path_head:
+            handle.write(f"[path_head {path_head}]\n")
         handle.write(proc.stdout)
         if proc.stdout and not proc.stdout.endswith("\n"):
             handle.write("\n")
-        handle.write(f"[exit {proc.returncode}]\n\n")
+        handle.write(f"[exit {format_returncode(proc.returncode)}]\n\n")
     return proc
 
 
@@ -375,10 +491,12 @@ def run_simulation(
     schematic: bool = False,
     data_source: str | None = None,
 ) -> dict[str, object]:
-    program = program or (TB_DIR / "array_sum_program.hex")
-    data = data or (TB_DIR / "array_sum_data.hex")
-    oss_root = oss_root or default_oss_root()
-    out_dir = out_dir or (DEFAULT_RUN_ROOT / run_name)
+    program = (program or (TB_DIR / "array_sum_program.hex")).expanduser().resolve()
+    data = (data or (TB_DIR / "array_sum_data.hex")).expanduser().resolve()
+    oss_root = (oss_root or default_oss_root())
+    if oss_root is not None:
+        oss_root = oss_root.expanduser().resolve()
+    out_dir = (out_dir or (DEFAULT_RUN_ROOT / run_name)).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     log_file = out_dir / "run.log"
     log_file.write_text("", encoding="utf-8")
@@ -392,6 +510,7 @@ def run_simulation(
     vcd_path = out_dir / "cpu_tb.vcd"
     fst_path = out_dir / "cpu_tb.fst"
     report_path = out_dir / "result.json"
+    waveform_conversion: dict[str, object] | None = None
     for stale_path in (
         sim_path,
         vcd_path,
@@ -440,7 +559,28 @@ def run_simulation(
         )
 
     if vcd_path.exists() and (Path(vcd2fst).exists() or shutil.which(vcd2fst) is not None):
-        run_tool(vcd2fst, [str(vcd_path), str(fst_path)], REPO_ROOT, log_file, oss_root)
+        conversion_proc = run_tool(vcd2fst, [str(vcd_path), str(fst_path)], REPO_ROOT, log_file, oss_root)
+        waveform_conversion = {
+            "tool": vcd2fst,
+            "returncode": conversion_proc.returncode,
+            "returncode_label": format_returncode(conversion_proc.returncode),
+            "output": str(fst_path),
+        }
+        if conversion_proc.returncode != 0:
+            with log_file.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "[required vcd2fst failed; packaged FST conversion did not complete]\n"
+                    f"[exit {format_returncode(conversion_proc.returncode)}]\n\n"
+                )
+    elif vcd_path.exists():
+        waveform_conversion = {
+            "tool": vcd2fst,
+            "returncode": None,
+            "returncode_label": "unavailable",
+            "output": str(fst_path),
+        }
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(f"[required vcd2fst unavailable: {vcd2fst}]\n\n")
 
     maybe_generate_schematic(oss_root, out_dir, log_file, schematic)
 
@@ -469,6 +609,7 @@ def run_simulation(
         "schematic_svg": str(out_dir / "cpu_schematic.svg") if (out_dir / "cpu_schematic.svg").exists() else None,
         "schematic_dot": str(out_dir / "cpu_schematic.dot") if (out_dir / "cpu_schematic.dot").exists() else None,
         "oss_root": str(oss_root) if oss_root else None,
+        "waveform_conversion": waveform_conversion,
         "testbench": report_data,
         "artifacts": {},
     }
@@ -491,9 +632,9 @@ def run_simulation(
 
     if wave_viewer is not None and wave_path.exists():
         if Path(wave_viewer).name.startswith("gtkwave") and gtkw_path is not None:
-            subprocess.Popen([wave_viewer, "-a", str(gtkw_path), str(wave_path)])
+            popen_tool(wave_viewer, ["-a", str(gtkw_path), str(wave_path)], REPO_ROOT, oss_root)
         else:
-            subprocess.Popen([wave_viewer, str(wave_path)])
+            popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root)
 
     return result
 

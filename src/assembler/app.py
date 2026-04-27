@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import math
-import importlib.util
 import re
 import shutil
-import subprocess
 import sys
 import textwrap
 import traceback
@@ -27,7 +25,7 @@ if __package__ in (None, ""):
         sys.path.insert(0, str(pkg_root))
     from assembler.assembler import AsmError, assemble, parse_number
     from assembler.cpu import CPU
-    from assembler.resources import bundled_oss_root, docs_index_path, resource_path, rtl_run_root, rtl_runner_path
+    from assembler.resources import bundled_oss_root, docs_index_path, resource_path, rtl_run_root
     from assembler.isa import (
         ADDR_MASK,
         GEN_OPCODES,
@@ -41,7 +39,7 @@ if __package__ in (None, ""):
 else:
     from .assembler import AsmError, assemble, parse_number
     from .cpu import CPU
-    from .resources import bundled_oss_root, docs_index_path, resource_path, rtl_run_root, rtl_runner_path
+    from .resources import bundled_oss_root, docs_index_path, resource_path, rtl_run_root
     from .isa import (
         ADDR_MASK,
         GEN_OPCODES,
@@ -52,6 +50,8 @@ else:
         RR_OPCODES,
         WORD_MASK,
     )
+
+from rtl.testbench import run_rtl_sim as rtl_runner
 
 @dataclass(frozen=True)
 class SampleDefinition:
@@ -1842,15 +1842,7 @@ Comments: // ; #
         self.open_cpu_blueprint()
 
     def _load_rtl_runner(self):
-        runner_path = rtl_runner_path()
-        if not runner_path.exists():
-            raise FileNotFoundError(f"RTL runner not found: {runner_path}")
-        spec = importlib.util.spec_from_file_location("amb_rtl_runner", runner_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not load RTL runner: {runner_path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        return rtl_runner
 
     @staticmethod
     def _write_program_hex(words: list[int], path: Path) -> None:
@@ -2249,8 +2241,7 @@ Comments: // ; #
             if Path(viewer).name.lower().startswith("gtkwave") and gtkw_path is not None and args == [str(wave_path)]:
                 args = ["-a", str(gtkw_path), str(wave_path)]
 
-            cmd, use_shell = runner.command_for_tool(viewer, args, oss_root_arg)
-            subprocess.Popen(cmd, shell=use_shell, env=runner.tool_environment(oss_root_arg))
+            runner.popen_tool(viewer, args, runner.REPO_ROOT, oss_root_arg)
             viewer_name = Path(viewer).name
             if fallback_used:
                 self.statusBar().showMessage(f"Opened waveform with fallback {viewer_name}: {wave_path}", 5000)
