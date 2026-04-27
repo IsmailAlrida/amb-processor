@@ -90,6 +90,32 @@ def tool_path(name: str, oss_root: Path | None) -> str:
     return shutil.which(f"{name}{suffix}") or shutil.which(name) or name
 
 
+def tool_environment(oss_root: Path | None) -> dict[str, str] | None:
+    if os.name != "nt" or oss_root is None:
+        return None
+
+    env = dict(os.environ)
+    bin_dir = oss_root / "bin"
+    lib_dir = oss_root / "lib"
+
+    extra_path_parts = [str(path) for path in (bin_dir, lib_dir) if path.exists()]
+    if extra_path_parts:
+        current_path = env.get("PATH", "")
+        env["PATH"] = os.pathsep.join([*extra_path_parts, current_path]) if current_path else os.pathsep.join(extra_path_parts)
+
+    env["YOSYSHQ_ROOT"] = str(oss_root)
+    env["SSL_CERT_FILE"] = str(oss_root / "etc" / "cacert.pem")
+    env["PYTHON_EXECUTABLE"] = str(lib_dir / "python3.exe")
+    env["QT_PLUGIN_PATH"] = str(lib_dir / "qt5" / "plugins")
+    env["QT_LOGGING_RULES"] = "*=false"
+    env["GTK_EXE_PREFIX"] = str(oss_root)
+    env["GTK_DATA_PREFIX"] = str(oss_root)
+    env["GDK_PIXBUF_MODULEDIR"] = str(lib_dir / "gdk-pixbuf-2.0" / "2.10.0" / "loaders")
+    env["GDK_PIXBUF_MODULE_FILE"] = str(lib_dir / "gdk-pixbuf-2.0" / "2.10.0" / "loaders.cache")
+    env["OPENFPGALOADER_SOJ_DIR"] = str(oss_root / "share" / "openFPGALoader")
+    return env
+
+
 def command_for_tool(tool: str, args: list[str], oss_root: Path | None) -> tuple[list[str] | str, bool]:
     tool_candidate = Path(tool)
     if tool_candidate.exists():
@@ -114,6 +140,7 @@ def run_tool(
     proc = subprocess.run(
         cmd,
         cwd=cwd,
+        env=tool_environment(oss_root),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

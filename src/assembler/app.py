@@ -2252,7 +2252,7 @@ Comments: // ; #
                 args = ["-a", str(gtkw_path), str(wave_path)]
 
             cmd, use_shell = runner.command_for_tool(viewer, args, oss_root_arg)
-            subprocess.Popen(cmd, shell=use_shell)
+            subprocess.Popen(cmd, shell=use_shell, env=runner.tool_environment(oss_root_arg))
             viewer_name = Path(viewer).name
             if fallback_used:
                 self.statusBar().showMessage(f"Opened waveform with fallback {viewer_name}: {wave_path}", 5000)
