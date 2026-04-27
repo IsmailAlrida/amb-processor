@@ -29,7 +29,18 @@ def collect_tree(src, dest):
     return entries
 
 
-oss_root = Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite"
+def resolve_oss_root_for_spec():
+    candidates = [
+        Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite",
+        Path("tools") / "oss-cad-suite" / "oss-cad-suite",
+    ]
+    for candidate in candidates:
+        if (ROOT / candidate).exists():
+            return candidate
+    return candidates[0]
+
+
+oss_root = resolve_oss_root_for_spec()
 
 datas = []
 datas += collect_tree("docs", "docs")
