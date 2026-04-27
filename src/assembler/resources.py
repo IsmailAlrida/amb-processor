@@ -88,10 +88,6 @@ def docs_index_path() -> Path:
     return resource_path("docs", "index.html")
 
 
-def rtl_runner_path() -> Path:
-    return resource_path("src", "rtl", "testbench", "run_rtl_sim.py")
-
-
 def rtl_run_root() -> Path:
     if getattr(sys, "frozen", False):
         base = Path(os.environ.get("AMB_PROCESSOR_RUN_DIR", Path.home() / ".amb-processor"))
