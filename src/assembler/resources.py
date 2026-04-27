@@ -7,6 +7,8 @@ import platform
 import sys
 from pathlib import Path
 
+OSS_CAD_SUITE_ENV_VAR = "AMB_OSS_CAD_SUITE_ROOT"
+
 
 def app_root() -> Path:
     """Return the root that contains bundled docs, RTL files, and tools."""
@@ -29,8 +31,57 @@ def platform_key() -> str:
     return f"{system}-{machine}"
 
 
+def oss_tool_root(base_root: Path | None = None) -> Path:
+    return (base_root or app_root()) / "tools" / "oss-cad-suite"
+
+
+def canonical_oss_root(base_root: Path | None = None, platform_name: str | None = None) -> Path:
+    return oss_tool_root(base_root) / (platform_name or platform_key()) / "oss-cad-suite"
+
+
+def compatibility_oss_root(base_root: Path | None = None) -> Path:
+    return oss_tool_root(base_root) / "oss-cad-suite"
+
+
+def _env_oss_root(base_root: Path | None = None) -> Path | None:
+    raw = os.environ.get(OSS_CAD_SUITE_ENV_VAR)
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = (base_root or app_root()) / path
+    return path
+
+
+def oss_root_candidates(base_root: Path | None = None, platform_name: str | None = None) -> tuple[Path, ...]:
+    base_root = base_root or app_root()
+    candidates: list[Path] = []
+    env_root = _env_oss_root(base_root)
+    if env_root is not None:
+        candidates.append(env_root)
+    candidates.append(canonical_oss_root(base_root, platform_name))
+    candidates.append(compatibility_oss_root(base_root))
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return tuple(deduped)
+
+
+def resolve_oss_root(base_root: Path | None = None, platform_name: str | None = None) -> Path | None:
+    for candidate in oss_root_candidates(base_root, platform_name):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def bundled_oss_root() -> Path:
-    return resource_path("tools", "oss-cad-suite", platform_key(), "oss-cad-suite")
+    return resolve_oss_root() or canonical_oss_root()
 
 
 def docs_index_path() -> Path:
