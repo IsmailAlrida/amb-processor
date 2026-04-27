@@ -7,28 +7,22 @@ import argparse
 import html
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+SRC_ROOT = Path(__file__).resolve().parents[2]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from assembler.resources import resolve_oss_root
 
 
 def app_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS")).resolve()
     return Path(__file__).resolve().parents[3]
-
-
-def platform_key() -> str:
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "windows":
-        return "windows-x64"
-    if system == "linux" and machine in {"x86_64", "amd64"}:
-        return "linux-x64"
-    return f"{system}-{machine}"
-
 
 REPO_ROOT = app_root()
 RTL_DIR = REPO_ROOT / "src" / "rtl"
@@ -84,8 +78,7 @@ GTKW_SIGNALS = [
 
 
 def default_oss_root() -> Path | None:
-    candidate = REPO_ROOT / "tools" / "oss-cad-suite" / platform_key() / "oss-cad-suite"
-    return candidate if candidate.exists() else None
+    return resolve_oss_root(REPO_ROOT)
 
 
 def tool_path(name: str, oss_root: Path | None) -> str:
@@ -98,13 +91,16 @@ def tool_path(name: str, oss_root: Path | None) -> str:
 
 
 def command_for_tool(tool: str, args: list[str], oss_root: Path | None) -> tuple[list[str] | str, bool]:
+    tool_candidate = Path(tool)
+    if tool_candidate.exists():
+        return [str(tool_candidate), *args], False
     if os.name != "nt" or oss_root is None:
         return [tool, *args], False
     env_bat = oss_root / "environment.bat"
     if not env_bat.exists():
         return [tool, *args], False
     cmdline = subprocess.list2cmdline([tool, *args])
-    return f'call "{env_bat}" && {cmdline}', True
+    return ["cmd.exe", "/d", "/s", "/c", f'call "{env_bat}" && {cmdline}'], False
 
 
 def run_tool(
