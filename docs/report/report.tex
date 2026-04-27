@@ -1,3 +1,4 @@
+% !TEX root = C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\docs\report\report.tex
 \documentclass[12pt,a4paper]{article}
 
 % ============================================================
@@ -17,6 +18,7 @@
 
 % ---------------- Core ----------------
 \usepackage{graphicx}
+\graphicspath{{../../assets/}{./}}
 \usepackage{fancyhdr}
 \usepackage{xcolor}
 \usepackage{titlesec}
@@ -28,11 +30,19 @@
 
 % ---------------- Tables ----------------
 \usepackage{array, booktabs, tabularx, colortbl}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 
 % ---------------- Code ----------------
 \usepackage{listings}
 \usepackage{tcolorbox}
 \tcbuselibrary{breakable,skins}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=fullflexible,
+    frame=single
+}
 
 % ---------------- Colors ----------------
 \definecolor{unired}{HTML}{EB5353}
@@ -100,7 +110,7 @@
 \vspace{0.4cm}
 {\Large Implementation and RTL Design of the AMB Processor\par}
 \vspace{0.3cm}
-{\large ISA \& Implementation Project \#1\par}
+{\large Course Project -- Part 2\par}
 
 \vspace{1.5cm}
 
@@ -130,278 +140,353 @@ Basel Alhomsi & 700036896 \\ \hline
 \begin{document}
 \maketitle
 
+\begin{abstract}
+This report presents the AMB processor as a single-cycle implementation of a custom 15-bit instruction set architecture (ISA) with 28-bit data words and byte-addressable memory. The project includes two implementation tracks. The first track preserves the original Part 1 ISA in Logisim artifacts, including the opcode decoder, hardwired control worksheet, and partial datapath. The second track implements the refined processor in Verilog, integrates it with instruction and data memory models, and verifies it through a Python-based assembler and RTL simulation workflow. The Verilog core successfully executes the required array-sum benchmark, producing the value 25 at data-memory address \texttt{0x0200}. The two tracks together show both the course-required control/datapath reasoning and the more regular RTL design that made the processor practical to assemble, simulate, inspect, and explain.
+\end{abstract}
+
 \section{ISA Summary}
-% summarize what we did in the last report, which is all commented out in the bottom
+
+The AMB processor was designed around a small fixed-length ISA: 15 instruction bits are stored in a 16-bit memory slot, while all architectural data values use 28 bits. Because memory is byte-addressable, every instruction occupies two consecutive bytes and the instruction counter (IC) advances by 2 during sequential execution. The assignment calls this state the program counter (PC); in this report, IC and PC refer to the same fetch address concept.
+
+\begin{table}[H]
+\centering
+\caption{Core architectural parameters.}
+\begin{tabularx}{\linewidth}{|l|Y|}
+\hline
+\textbf{Item} & \textbf{Value} \\ \hline
+Instruction encoding width & 15 bits \\ \hline
+Instruction storage width & 16 bits, with bit 15 unused \\ \hline
+Data word width & 28 bits \\ \hline
+Address width & 28 bits \\ \hline
+Instruction memory model & Byte-addressed, two bytes per instruction \\ \hline
+Data memory model & Byte-addressed, four bytes per 28-bit word transfer \\ \hline
+Sequential IC update & \texttt{IC = IC + 2} \\ \hline
+Execution model & Single-cycle fetch, decode, execute, memory, and writeback \\ \hline
+\end{tabularx}
+\end{table}
+
+The original Part 1 ISA used three instruction formats: a 7-bit opcode register format, a 4-bit jump opcode with an 11-bit immediate, and a 3-bit immediate format. That design met the project constraints, but it forced the control unit to treat each instruction family differently. The refined RTL keeps the same 15-bit storage rule and 28-bit machine width, but regularizes decoding by making \texttt{instr[14:8]} a 7-bit opcode for every implemented instruction.
+
+\begin{table}[H]
+\centering
+\caption{Implemented register map in the refined RTL path.}
+\begin{tabularx}{\linewidth}{|c|l|Y|}
+\hline
+\textbf{Selector} & \textbf{Name} & \textbf{Role} \\ \hline
+\texttt{0000}--\texttt{0111} & R0--R7 & General-purpose registers. \\ \hline
+\texttt{1000} & IC (reserved name) & The fetch IC is dedicated CPU state in the RTL; it is exposed to instruction memory and testbenches rather than written as a normal register. \\ \hline
+\texttt{1001} & SP & Reserved stack pointer slot. \\ \hline
+\texttt{1010} & LC & Reserved loop counter slot. \\ \hline
+\texttt{1011} & IMR & Immediate register used to assemble 28-bit constants from four 8-bit immediate-load instructions. \\ \hline
+\texttt{1100} & JMPOFF & Base offset for long and conditional jumps. \\ \hline
+\texttt{1101} & MEMOFF & Base offset for load/store effective addresses. \\ \hline
+\texttt{1110} & CMPA & First operand for conditional branch comparisons. \\ \hline
+\texttt{1111} & CMPB & Second operand for conditional branch comparisons. \\ \hline
+\end{tabularx}
+\end{table}
+
+\begin{tipbox}[IC Implementation Note]
+In the first ISA draft, IC appeared as a writable register-file entry. In the refined Verilog implementation, IC is dedicated CPU state. This keeps the fetch path under one synchronous owner while still exposing IC as an output for instruction memory and waveform inspection.
+\end{tipbox}
 
 \section{RTL And Logisim Overview}
 
-We implemented an optimized version of the ISA in verilog, and bundled with the python-based assembly simulator with bundled waveform viewers and an icarus verilog runtime to run the CPU verilog and verify the inner workings. It comes fully equipped with a text editor, simulator based on hardware, and is on github.
+The project is presented through two complementary implementation tracks. The main processor is the Verilog RTL core, where \texttt{cpu.v} connects instruction fetch, hardwired decode, the register file, the ALU, branch logic, and the external data-memory buses. Around that core, the Python application assembles AMB assembly programs, prepares memory images, launches Icarus Verilog simulation, and opens reports or waveforms. This toolchain is not the processor itself; it is the bench around the processor, and it makes the hardware behavior visible enough to debug.
 
-For the love of the game, we also implemented in parallel the origina ISA in logisim, but we could not complete it in time. 
+The Logisim work preserves the original ISA direction requested by the assignment. It includes the opcode decoder, hardwired control-unit table, and partial datapath. That track is useful because it documents the direct course-style design process: signals are labeled, instruction classes are separated, and the control table follows the older instruction formats. The Verilog track then shows the same processor idea after the ISA was cleaned up into a more regular hardware contract.
 
-All in all, we successfully ran the bench mark 
+\begin{resultbox}[Implemented Result]
+The RTL simulation executes the mandatory array-sum benchmark for \texttt{N = 5} and array \texttt{[3, 7, 2, 9, 4]}. The recorded validation run halts after 65 cycles, with expected result \texttt{0x19} and actual result \texttt{0x19} at data-memory address \texttt{0x0200}.
+\end{resultbox}
 
-\begin{figure}
-    \includegraphics[]{"writing0x19(Rb)to0x200(alures)dmem.png"}
+\section{ISA Optimization}
+
+\subsection{What Changed}
+
+The most important refinement was making the opcode field constant. In the implemented RTL, every instruction uses \texttt{instr[14:8]} as a 7-bit opcode. Register operations use \texttt{instr[7:4]} as \texttt{Rb} and \texttt{instr[3:0]} as \texttt{Ra}; immediate and jump operations reuse \texttt{instr[7:0]} as an 8-bit immediate. That single decision removes much of the old decoder branching and lets the controller classify operations by direct opcode comparison.
+
+The second refinement was replacing partial destination-register immediate loads with an immediate assembly register, \texttt{IMR}. The processor now uses \texttt{LIL}, \texttt{LIH}, \texttt{LILL}, and \texttt{LIHH} to load four byte lanes of \texttt{IMR}. A normal \texttt{MOV} then transfers the assembled value into a general-purpose or special-purpose register. It takes a few simple instructions, but it avoids a larger immediate datapath and keeps the instruction format tidy.
+
+Memory addressing also changed. The older ISA used \texttt{MEMOFF + imm8} for \texttt{LOAD} and \texttt{STOR}. The implemented RTL uses \texttt{MEMOFF + Rb}. This makes indexed memory access natural: a program can keep a pointer in a register, load or store through it, then increment the pointer using normal ALU instructions. The array-sum benchmark benefits directly from this choice.
+
+\begin{table}[H]
+\centering
+\caption{Original ISA structure retained for the Logisim compatibility track.}
+\begin{tabularx}{\linewidth}{|l|l|Y|}
+\hline
+\textbf{Class} & \textbf{Format} & \textbf{Instructions} \\ \hline
+System & \texttt{opcode7, Ra, Rb} & \texttt{HLT}, \texttt{NOP}; register fields are not functionally used. \\ \hline
+Register & \texttt{opcode7, Ra, Rb} & \texttt{NOT}, \texttt{OR}, \texttt{AND}, \texttt{XOR}, \texttt{SHL}, \texttt{SHR}, \texttt{SAR}, \texttt{ADD}, \texttt{SUB}, \texttt{MOV}. \\ \hline
+Immediate & \texttt{opcode3, Ra, imm8} & \texttt{LIL}, \texttt{LIH}, \texttt{LOAD}, \texttt{STOR}. \\ \hline
+Jump & \texttt{opcode4, imm11} & \texttt{JMP}, \texttt{JMPL}, \texttt{JPEQ}, \texttt{JPBLW}. \\ \hline
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Refined ISA structure implemented by the Verilog RTL.}
+\begin{tabularx}{\linewidth}{|l|l|Y|}
+\hline
+\textbf{Class} & \textbf{Opcode Range} & \textbf{Implemented Behavior} \\ \hline
+System & \texttt{0000000}, \texttt{0000001} & \texttt{HLT} stops IC and state updates; \texttt{NOP} advances IC without architectural writes. \\ \hline
+Register/ALU & \texttt{0010000}--\texttt{0011001} & \texttt{Ra = f(Ra, Rb)} for logic, shifts, arithmetic, and \texttt{MOV}. \\ \hline
+Immediate assembly & \texttt{0011010}--\texttt{0011101} & \texttt{LIL}, \texttt{LIH}, \texttt{LILL}, and \texttt{LIHH} write byte lanes of \texttt{IMR}. \\ \hline
+Memory & \texttt{0011110}, \texttt{0011111} & \texttt{LOAD Ra, Rb} and \texttt{STOR Ra, Rb} use effective address \texttt{MEMOFF + Rb}. \\ \hline
+Jump/branch & \texttt{1000000}--\texttt{1000011} & PC-relative jumps use signed \texttt{imm8}; long and conditional forms add \texttt{JMPOFF}. \\ \hline
+\end{tabularx}
+\end{table}
+
+\subsection{Why The Refinement Helped}
+
+The original ISA was compact, but compactness came with control cost. A mixed opcode field means the control unit must first identify the instruction family and only then interpret the remaining bits. That is manageable on paper, but in a single-cycle datapath it quickly adds multiplexers, special cases, and decode paths that are easy to wire incorrectly.
+
+The refined ISA trades a little encoding density for a cleaner datapath. With one opcode field, instruction classification becomes a direct comparison. With \texttt{IMR}, constant construction is explicit and easy to trace. With register-indexed memory, the benchmark loop can walk through an array using ordinary pointer arithmetic. In short, the new ISA is still small, but it gives the hardware fewer ways to get tangled.
+
+\section{Datapath And RTL Development}
+
+The Verilog processor is a single-cycle datapath. Instruction memory provides the current instruction combinationally from \texttt{IC}; the controller decodes \texttt{opcode}; the register file exposes \texttt{Ra} and \texttt{Rb}; the ALU produces arithmetic, logical, comparison, or address results; and the selected writeback value is committed on the next rising clock edge.
+
+The instruction counter is one of the few explicitly synchronous elements in the core. On reset, \texttt{IC} becomes zero. When \texttt{halt} is not asserted, the next clock edge loads either \texttt{IC + 2} or the branch target:
+\[
+\mathrm{NextIC} = \mathrm{IC} +
+\begin{cases}
+(\operatorname{signext}(\mathrm{imm8}) + \mathrm{JMPOFF}) \ll 1, & \text{long or conditional jump taken} \\
+\operatorname{signext}(\mathrm{imm8}) \ll 1, & \text{plain jump taken} \\
+2, & \text{sequential execution.}
+\end{cases}
+\]
+The left shift by one converts an instruction offset into a byte offset because each instruction occupies two bytes.
+
+The register file uses asynchronous reads and synchronous writes. This is well suited to a single-cycle teaching processor: source operands are visible during the cycle, and the result lands in the destination register only at the clock edge. The same writeback port handles ALU results, memory loads, and immediate-byte writes into \texttt{IMR}. For \texttt{IMR}, the \texttt{ImmSel} control signal selects which byte lane is updated.
+
+The data memory is byte-addressed but transfers 28-bit words. Reads are asynchronous and return four bytes assembled little-endian, with the upper nibble of the fourth byte used for bits 27--24. Stores are synchronous and split a 28-bit value back across four byte locations. This is why the benchmark uses a stride of 4 when iterating over the array.
+
+\begin{table}[H]
+\centering
+\caption{Main datapath signals in the RTL core.}
+\begin{tabularx}{\linewidth}{|l|Y|}
+\hline
+\textbf{Signal} & \textbf{Role} \\ \hline
+\texttt{IC} & Byte address of the instruction currently being fetched. \\ \hline
+\texttt{instr} & 16-bit stored instruction word; \texttt{instr[14:0]} is the ISA instruction. \\ \hline
+\texttt{ReadDataRa}, \texttt{ReadDataRb} & Register-file outputs selected by the decoded instruction fields or by \texttt{CMPA}/\texttt{CMPB} during branches. \\ \hline
+\texttt{OperandA}, \texttt{OperandB} & ALU operands; memory operations force \texttt{OperandA = MEMOFF}. \\ \hline
+\texttt{ALURes} & Shared ALU output used for register writeback, data-memory address generation, and comparison side effects. \\ \hline
+\texttt{DataAddress} & External data-memory address, directly driven by \texttt{ALURes}. \\ \hline
+\texttt{RegDataWrite} & Final value written to the register file, selected from memory, ALU, immediate data, or zero. \\ \hline
+\end{tabularx}
+\end{table}
+
+\section{Control Unit And Control Table}
+
+The implemented controller is hardwired and combinational. It does not store microinstructions or step through states; each opcode directly produces the control signals needed for that cycle. This matches the single-cycle datapath: all control decisions are made before the clock edge that updates \texttt{IC}, the register file, and data memory.
+
+\begin{table}[H]
+\centering
+\scriptsize
+\caption{Verilog control table extracted from the implemented controller. \texttt{X} indicates a don't-care value because the destination path is disabled or unused.}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lccccccccccccc}
+\toprule
+\textbf{Instr.} & \textbf{MemOp} & \textbf{RegWrite} & \textbf{ReadEn} & \textbf{WriteEn} & \textbf{isJump} & \textbf{LongJump} & \textbf{BrEq} & \textbf{BrLt} & \textbf{ImmLoad} & \textbf{RegDest} & \textbf{ImmSel} & \textbf{ALUCtrl} & \textbf{halt} \\
+\midrule
+\texttt{HLT}   & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & X  & X  & X    & 1 \\
+\texttt{NOP}   & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & X  & X  & X    & 0 \\
+\texttt{NOT}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0000 & 0 \\
+\texttt{OR}    & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0001 & 0 \\
+\texttt{AND}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0010 & 0 \\
+\texttt{XOR}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0011 & 0 \\
+\texttt{SHL}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0100 & 0 \\
+\texttt{SHR}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0101 & 0 \\
+\texttt{SAR}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0110 & 0 \\
+\texttt{ADD}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 0111 & 0 \\
+\texttt{SUB}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 1000 & 0 \\
+\texttt{MOV}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 01 & X  & 1001 & 0 \\
+\texttt{LIL}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 10 & 00 & X    & 0 \\
+\texttt{LIH}   & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 10 & 01 & X    & 0 \\
+\texttt{LILL}  & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 10 & 10 & X    & 0 \\
+\texttt{LIHH}  & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 10 & 11 & X    & 0 \\
+\texttt{LOAD}  & 1 & 1 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 00 & X  & 0111 & 0 \\
+\texttt{STOR}  & 1 & 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 & X  & X  & 0111 & 0 \\
+\texttt{JMP}   & 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 & X  & X  & X    & 0 \\
+\texttt{JMPL}  & 0 & 0 & 0 & 0 & 1 & 1 & 0 & 0 & 0 & X  & X  & X    & 0 \\
+\texttt{JPEQ}  & 0 & 0 & 0 & 0 & 1 & 1 & 1 & 0 & 0 & X  & X  & 1000 & 0 \\
+\texttt{JPBLW} & 0 & 0 & 0 & 0 & 1 & 1 & 0 & 1 & 0 & X  & X  & 1000 & 0 \\
+\bottomrule
+\end{tabular}}
+\label{tab:rtl_control}
+\end{table}
+
+\noindent The writeback selector is encoded as \texttt{RegDest = 00} for data memory, \texttt{01} for ALU result, and \texttt{10} for the zero-extended immediate byte. The \texttt{ImmSel} field selects the \texttt{IMR} byte lane: \texttt{00} for bits 7--0, \texttt{01} for bits 15--8, \texttt{10} for bits 23--16, and \texttt{11} for bits 27--24.
+
+Branch control is deliberately explicit. For \texttt{JPEQ} and \texttt{JPBLW}, the CPU overrides the normal instruction register selects and reads \texttt{CMPA} and \texttt{CMPB}. The ALU continuously computes equality and unsigned less-than flags, and the branch unit selects the next IC only when the selected condition is true. This avoids hidden condition-code state and makes branch behavior easy to see in a waveform.
+
+\section{Instruction Execution And Benchmark}
+
+The mandatory benchmark sums five words from memory:
+\[
+3 + 7 + 2 + 9 + 4 = 25 = \texttt{0x19}.
+\]
+The data layout follows the assignment prompt: \texttt{LEN} is stored at \texttt{0x0100}, the array begins at \texttt{0x0104}, and the result is written to \texttt{0x0200}. Since each AMB data word occupies four bytes in the byte-addressed data memory, the loop increments the array pointer by 4 after every load. Listing~\ref{lst:array_sum_source} is the same benchmark source loaded by the app through its sample-code path.
+
+\begin{lstlisting}[caption={Array-sum benchmark assembly source loaded by the app.},label={lst:array_sum_source}]
+// Array sum benchmark
+// N = 5
+// ARRAY = [3, 7, 2, 9, 4]
+// RESULT should become 25 at address 0x0200.
+
+// R0 = sum
+// R1 = LEN pointer
+// R2 = len
+// R3 = index
+// R4 = 1
+// R5 = 4-byte word stride
+// R6 = array/result pointer
+// R7 = current element
+
+// Load LEN into R2
+LIL 0x00
+LIH 0x01
+MOV R1, IMR
+LOAD R2, R1
+
+// Intialize sum and index registers as 0
+LIL 0x00
+LIH 0x00
+MOV R0, IMR
+MOV R3, IMR
+
+// Set R4[0]
+LIL 0x01
+LIH 0x00
+MOV R4, IMR
+
+// R5 as 4 to use for striding 4-bytes in memory
+LIL 0x04
+LIH 0x00
+MOV R5, IMR
+
+// Load array start location to R6
+LIL 0x04
+LIH 0x01
+MOV R6, IMR
+
+// Loop across
+loop:
+MOV CMPA, R3
+MOV CMPB, R2
+JPBLW body
+JMP done
+
+// Loop while the index is less than the length
+body:
+LOAD R7, R6
+ADD R0, R7
+
+// Stride forward
+ADD R6, R5
+
+// Increment loop counter
+ADD R3, R4
+
+// Repeat
+JMP loop
+
+// Finish when index (R3) == len (R2)
+done:
+LIL 0x00
+LIH 0x02
+MOV R6, IMR
+STOR R0, R6
+HLT
+\end{lstlisting}
+
+
+
+The program first builds the required constants through \texttt{IMR}, then copies them into working registers. The loop uses \texttt{R0} as the running sum, \texttt{R2} as the length, \texttt{R3} as the index, \texttt{R5} as the four-byte stride, \texttt{R6} as the data pointer, and \texttt{R7} as the current element. Before each conditional branch, \texttt{R3} and \texttt{R2} are moved into \texttt{CMPA} and \texttt{CMPB}; \texttt{JPBLW} continues the loop while the index is below the length.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{writing0x19(Rb)to0x200(alures)dmem.png}
+\caption{RTL waveform capture showing the final store of \texttt{0x19} to result address \texttt{0x0200}.}
+\label{fig:rtl_result_waveform}
 \end{figure}
 
-From the ISA, R_a is the destination register, however in STOR commands it is used to dump data in Ra 
-at the memory location specified by the ALU result. 
+Figure~\ref{fig:rtl_result_waveform} shows the final store transaction. In this cycle, \texttt{STOR R0, R6} uses \texttt{R0} as the value source and \texttt{R6} as the address source. Because \texttt{MEMOFF} is zero for this benchmark, the ALU address calculation is \texttt{0 + 0x0200}. The ALU result therefore drives \texttt{DataAddress = 0x0200}, while the data-memory write bus carries \texttt{0x19}. The value is committed only when \texttt{DmemWriteEn} is asserted.
 
-Operand A in the ALU comes from a direct exposure of MEMOFF from the reg file when doing memory ops and it was zero hence the operand A waveform was 0.
-however operand B is the zero extended immediate (unsigned) was set to directly address 0x200. Since memory address for storing is calculated as MEMOFF + imm8 -> imm28
-the result of the ALU at this clock cycle would then be the address of the written data. The sum, 0x19, held in Ra, was only written when the data memory flag was enabled.
+\section{Integrated App Workflow}
 
-You can install the app directly from our github releases page
+The Python application exists to make the RTL processor easier to use, not to replace it. It provides an editor for AMB assembly, assembles source code into instruction-memory hex, prepares data-memory images, runs the Verilog testbench, and opens the generated result summary and waveform files. The app can be installed from the project \href{https://github.com/IsmailAlrida/amb-processor/releases/tag/latest}{GitHub releases page}.
 
-% % ============================================================
-% \section{ISA Overview}
+To reproduce the benchmark, open the app, load the sample code, select the array-sum benchmark, and assemble the program. The sample also preloads the data memory with the required benchmark data, so the assembly program can focus on the processor behavior rather than manually constructing the array. After assembly, running the RTL simulation launches the Verilog testbench in the background and produces a report containing the final result, cycle count, halt status, and generated waveform artifacts.
 
-% In this project, we designed the AMB Processor Instruction Set Architecture from first principles. Our objective was to construct a compact, fixed-length ISA that satisfies all mandatory course constraints while remaining structurally and conceptually distinct from MIPS.
+For deeper inspection, the waveform viewer exposes the same internal signals used in this report: \texttt{IC}, \texttt{instr}, \texttt{opcode}, \texttt{RegWrite}, \texttt{RegDest}, data-memory enables, \texttt{DataAddress}, ALU operands, ALU result, comparison flags, and branch decisions. This gives the demonstration a useful split: the app shows that the program works, and the waveform shows why it works.
 
-% The ISA was designed around three core principles:
+\section{Work-in-progress Logisim CPU}
 
-% \begin{itemize}
-% \item Deterministic and simple instruction decoding
-% \item Explicit control-flow semantics
-% \item Expandability through structured opcode partitioning
-% \end{itemize}
+The Logisim implementation follows the original Part 1 ISA and assignment-style control signals. Its purpose is to document the direct single-cycle datapath design requested in the project prompt: PC, instruction memory, register file, ALU, data memory, immediate unit, multiplexers, and hardwired control. The opcode decoder and control unit were built, while the full datapath remained a work in progress.
 
-% \begin{resultbox}[Core Architectural Parameters]
-% \begin{itemize}
-% \item Instruction Width: 15 bits
-% \item Word Size: 28 bits
-% \item Address Width: 28 bits
-% \item Memory: Byte-addressable
-% \item PC Increment: 2 bytes per instruction
-% \item Register Count: 16 registers (28-bit each)
-% \end{itemize}
-% \end{resultbox}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{"opcode decoder.jpeg"}
+\caption{Opcode decoder developed for the original Logisim ISA path.}
+\label{fig:logisim_opcode_decoder}
+\end{figure}
 
-% The architecture balances encoding efficiency with hardware clarity, ensuring that future datapath implementation remains straightforward.
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{logisim_control_unit.jpeg}
+\caption{Logisim control-unit wiring for the original control signal set.}
+\label{fig:logisim_control_unit}
+\end{figure}
 
-% % ============================================================
-% \section{Instruction Storage and PC Semantics}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{partial-logisim-datapath.jpeg}
+\caption{Partial Logisim datapath showing the course-required hardware construction direction.}
+\label{fig:partial_logisim_datapath}
+\end{figure}
 
-% Although instructions are 15 bits wide, memory is byte-addressable. Therefore:
+The legacy control table used a compact control vocabulary: \texttt{RegWrite}, \texttt{MemRead}, \texttt{MemWrite}, \texttt{ALUSrc}, \texttt{Jump}, \texttt{Branch}, and \texttt{ALUOp}. This table is different from the Verilog controller in Table~\ref{tab:rtl_control}; it belongs to the original mixed-format ISA, where immediate and jump instructions required separate decoding rules.
 
-% \begin{warningbox}
-% Each instruction occupies 16 bits (2 bytes), with one unused bit.
-% \end{warningbox}
+\begin{table}[H]
+\centering
+\scriptsize
+\caption{Legacy Logisim control-unit table transcribed from the control decoding worksheet.}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llccccccc}
+\toprule
+\textbf{Instr.} & \textbf{Type} & \textbf{RegWrite} & \textbf{MemRead} & \textbf{MemWrite} & \textbf{ALUSrc} & \textbf{Jump} & \textbf{Branch} & \textbf{ALUOp} \\
+\midrule
+\texttt{ADD} & R & 1 & 0 & 0 & 0 & 0 & 0 & ADD \\
+\texttt{SUB} & R & 1 & 0 & 0 & 0 & 0 & 0 & SUB \\
+\texttt{AND} & R & 1 & 0 & 0 & 0 & 0 & 0 & AND \\
+\texttt{OR}  & R & 1 & 0 & 0 & 0 & 0 & 0 & OR \\
+\texttt{XOR} & R & 1 & 0 & 0 & 0 & 0 & 0 & XOR \\
+\texttt{SHL} & R & 1 & 0 & 0 & 0 & 0 & 0 & SHL \\
+\texttt{SHR} & R & 1 & 0 & 0 & 0 & 0 & 0 & SHR \\
+\texttt{SAR} & R & 1 & 0 & 0 & 0 & 0 & 0 & SAR \\
+\texttt{MOV} & R & 1 & 0 & 0 & 0 & 0 & 0 & PASS \\
+\texttt{LIL} & I & 1 & 0 & 0 & 1 & 0 & 0 & LOAD\_IMM \\
+\texttt{LIH} & I & 1 & 0 & 0 & 1 & 0 & 0 & LOAD\_IMM \\
+\texttt{LOAD} & I & 1 & 1 & 0 & 1 & 0 & 0 & ADD \\
+\texttt{STOR} & I & 0 & 0 & 1 & 1 & 0 & 0 & ADD \\
+\texttt{JMP} & J & 0 & 0 & 0 & X & 1 & 0 & X \\
+\texttt{JMPL} & J & 0 & 0 & 0 & X & 1 & 0 & X \\
+\texttt{JPEQ} & J & 0 & 0 & 0 & X & 0 & 1 & CMP \\
+\texttt{JPBLW} & J & 0 & 0 & 0 & X & 0 & 1 & CMP \\
+\texttt{HLT} & SYS & 0 & 0 & 0 & X & 0 & 1 & X \\
+\texttt{NOP} & SYS & 0 & 0 & 0 & X & 0 & 1 & X \\
+\bottomrule
+\end{tabular}}
+\end{table}
 
-% The Instruction Counter (IC) holds a byte address and increments by 2 after each fetch. This guarantees:
+The main implementation lesson from the Logisim path is that the original encoding made the wiring heavier than it needed to be. The revised RTL ISA removes that pressure by making opcode decoding regular, moving immediate assembly into \texttt{IMR}, and turning memory addressing into normal register-based pointer arithmetic.
 
-% \begin{itemize}
-% \item Aligned instruction boundaries
-% \item Simplified fetch logic
-% \item No bit-level addressing complexity
-% \end{itemize}
+\section{Reflection}
 
-% All registers, ALU operations, and memory transfers operate strictly on 28-bit words.
+The AMB processor started as a compact custom ISA and became a working single-cycle RTL processor with an integrated assembler and simulation workflow. The completed Verilog design satisfies the core computer-architecture behavior expected from the project: instruction fetch, PC progression, register updates, ALU execution, memory load/store behavior, branching, halting, and benchmark execution.
 
-% % ============================================================
-% \section{Register Architecture}
-
-% The AMB Processor includes 16 architecturally visible 28-bit registers.
-
-% \subsection*{General Purpose Registers}
-
-% R0–R7 serve as general computation registers.
-
-% \subsection*{Special Purpose Registers}
-
-% \begin{center}
-% \begin{tabular}{|c|l|}
-% \hline
-% \textbf{Register} & \textbf{Purpose} \\
-% \hline
-% IC & Instruction Counter \\
-% SP & Stack Pointer \\
-% LC & Loop Counter \\
-% SHC & Shift Counter \\
-% JMPOFF & Long Jump Offset Base \\
-% MEMOFF & Memory Offset Base \\
-% CMPA & Compare Operand A \\
-% CMPB & Compare Operand B \\
-% \hline
-% \end{tabular}
-% \end{center}
-
-% \begin{tipbox}
-% Instead of implicit status flags, we use explicit comparison registers. This eliminates hidden processor state and simplifies branch evaluation hardware.
-% \end{tipbox}
-
-% % ============================================================
-% \section{Instruction Formats}
-
-% We defined three instruction formats.
-
-% \subsection{Register-to-Register Format}
-
-% \[
-% \text{[Opcode 7 bits]} \quad \text{[Ra 4 bits]} \quad \text{[Rb 4 bits]}
-% \]
-
-% MSBs = 001
-
-% \subsection{Immediate Format}
-
-% \[
-% \text{[Opcode 3 bits]} \quad \text{[Ra 4 bits]} \quad \text{[Immediate 8 bits]}
-% \]
-
-% MSB = 1
-
-% \subsection{Jump Format}
-
-% \[
-% \text{[Opcode 4 bits]} \quad \text{[Immediate 11 bits]}
-% \]
-
-% Jump immediate is shifted left by 1 before being added to IC.
-
-% % ============================================================
-% \section{Complete Instruction Set}
-
-% % ---------------- R-type Table ----------------
-% \subsection*{Register-to-Register Instructions}
-
-% \begin{center}
-% \begin{tabular}{|l|c|}
-% \hline
-% \textbf{Instruction} & \textbf{Opcode (7 bits)} \\
-% \hline
-% NOT Ra & 0010000 \\
-% OR Ra, Rb & 0010001 \\
-% AND Ra, Rb & 0010010 \\
-% XOR Ra, Rb & 0010011 \\
-% SHL Ra, Rb & 0010100 \\
-% SHR Ra, Rb & 0010101 \\
-% SAR Ra, Rb & 0010110 \\
-% ADD Ra, Rb & 0010111 \\
-% SUB Ra, Rb & 0011000 \\
-% MOV Ra, Rb & 0011001 \\
-% \hline
-% \end{tabular}
-% \end{center}
-
-% % ---------------- Immediate Table ----------------
-% \subsection*{Immediate Instructions}
-
-% \begin{center}
-% \begin{tabular}{|l|c|}
-% \hline
-% \textbf{Instruction} & \textbf{Opcode (3 bits)} \\
-% \hline
-% LIL Ra, imm & 100 \\
-% LIH Ra, imm & 101 \\
-% LOAD Ra, imm & 110 \\
-% STOR Ra, imm & 111 \\
-% \hline
-% \end{tabular}
-% \end{center}
-
-% % ---------------- Jump Table ----------------
-% \subsection*{Jump Instructions}
-
-% \begin{center}
-% \begin{tabular}{|l|c|}
-% \hline
-% \textbf{Instruction} & \textbf{Opcode (4 bits)} \\
-% \hline
-% JMP imm & 0100 \\
-% JMPL imm & 0101 \\
-% JPEQ imm & 0110 \\
-% JPBLW imm & 0111 \\
-% \hline
-% \end{tabular}
-% \end{center}
-
-% % ---------------- System Table ----------------
-% \subsection*{System Instructions}
-
-% \begin{center}
-% \begin{tabular}{|l|c|}
-% \hline
-% \textbf{Instruction} & \textbf{Opcode (7 bits)} \\
-% \hline
-% HLT & 0000000 \\
-% NOP & 0000001 \\
-% \hline
-% \end{tabular}
-% \end{center}
-
-% % ============================================================
-% \section{Example Program}
-
-% \begin{lstlisting}
-% ; Compute R0 + R1
-% ; If equal to R2, store result
-
-% LIL   R0, 5
-% LIL   R1, 3
-% ADD   R0, R1
-
-% LIL   R2, 8
-
-% MOV   CMPA, R0
-% MOV   CMPB, R2
-
-% JPEQ  2
-% HLT
-
-% STOR  R0, 20
-% HLT
-% \end{lstlisting}
-
-% \begin{resultbox}
-% This program demonstrates arithmetic computation, explicit comparison, conditional control flow, and memory storage — exercising all major instruction classes.
-% \end{resultbox}
-
-% % ============================================================
-% \section{Architectural Differences from MIPS}
-
-% \begin{enumerate}
-% \item 15-bit instruction width instead of 32-bit.
-% \item Explicit comparison registers instead of implicit flags.
-% \item Dedicated offset registers (JMPOFF, MEMOFF).
-% \item No branch delay slots.
-% \item Structured opcode partitioning.
-% \end{enumerate}
-
-% % ============================================================
-% \section{Assembler Implementation}
-
-% To validate and test the AMB Processor ISA, we developed a dedicated assembler in Python. The assembler was implemented using Codex-assisted development and later compiled into a standalone Windows executable to allow convenient execution without requiring a Python runtime environment.
-
-% The assembler provides a fully integrated development interface tailored to our custom assembly language. Its primary features include:
-
-% \begin{itemize}
-% \item A built-in code editor supporting syntax highlighting and real-time syntax validation
-% \item Auto-completion for instruction mnemonics and register names
-% \item Step-by-step execution mode for debugging
-% \item Full program execution mode
-% \item Support for saving and loading source files using a custom \texttt{.ambasm} file extension
-% \end{itemize}
-
-% \noindent In addition to code editing and execution, the assembler includes a dynamic memory visualization panel. This panel displays the processor memory map, allowing the user to specify the starting address and the number of memory blocks to be shown. This enables direct observation of instruction encoding and data storage during execution.
-
-% \noindent A dedicated register viewer panel displays all architectural registers and their current 28-bit contents in real time. This allows us to trace arithmetic operations, control-flow behavior, and memory interactions during program execution.
-
-% \noindent To further improve usability, the application includes an integrated help panel containing the complete instruction set reference and documentation. This ensures that users can quickly verify opcode formats and instruction semantics while writing code.
-
-% \noindent All interface panels are fully resizable, enabling flexible layout adjustments and improving overall usability during development and debugging sessions.
-
-% \begin{figure}[H]
-% \centering
-% \includegraphics[width=\linewidth]{image.png}
-% \caption{Screenshot of the AMB Processor assembler interface}
-% \label{fig:assembler}
-% \end{figure}
-% % ============================================================
-% \section{Conclusion}
-
-% The AMB Processor ISA satisfies all project requirements while maintaining originality and structural clarity. The architecture is compact, extensible, and directly implementable in hardware.
+The main limitation is that the Logisim implementation did not reach the same level of completion as the Verilog implementation. Still, the Logisim artifacts document the original control logic and show the required course-level datapath construction. The more complete result is the refined RTL processor: it is smaller to decode, easier to test, and much easier to explain from waveforms. That is the version we would carry forward for further ISA experiments, more benchmarks, and eventual synthesis-oriented cleanup.
 
 \end{document}
-

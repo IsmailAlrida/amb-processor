@@ -165,16 +165,17 @@ def clean_child_dll_search():
         _set_windows_dll_directory(previous)
 
 
-def _startup_options(*, hide_console: bool) -> dict[str, object]:
+def _startup_options(*, suppress_console: bool, hide_window: bool = False) -> dict[str, object]:
     if os.name != "nt":
         return {}
 
     options: dict[str, object] = {}
-    if hide_console:
+    if hide_window:
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
         options["startupinfo"] = startupinfo
+    if suppress_console:
         options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return options
 
@@ -230,7 +231,7 @@ def popen_tool(
             cwd=actual_cwd,
             env=env,
             shell=use_shell,
-            **_startup_options(hide_console=hide_console),
+            **_startup_options(suppress_console=hide_console),
         )
 
 
@@ -255,7 +256,7 @@ def run_tool(
             stderr=subprocess.STDOUT,
             check=False,
             shell=use_shell,
-            **_startup_options(hide_console=True),
+            **_startup_options(suppress_console=True, hide_window=True),
         )
     printable = cmd if isinstance(cmd, str) else " ".join(cmd)
     with log_file.open("a", encoding="utf-8") as handle:
@@ -632,9 +633,9 @@ def run_simulation(
 
     if wave_viewer is not None and wave_path.exists():
         if Path(wave_viewer).name.startswith("gtkwave") and gtkw_path is not None:
-            popen_tool(wave_viewer, ["-a", str(gtkw_path), str(wave_path)], REPO_ROOT, oss_root)
+            popen_tool(wave_viewer, ["-a", str(gtkw_path), str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
         else:
-            popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root)
+            popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
 
     return result
 
