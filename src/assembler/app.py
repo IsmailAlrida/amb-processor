@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -714,18 +715,26 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
 
 
 class TitleBar(QtWidgets.QWidget):
-    def __init__(self, parent: QtWidgets.QWidget) -> None:
+    def __init__(
+        self,
+        parent: QtWidgets.QWidget,
+        *,
+        title: str | None = None,
+        button_labels: tuple[str, str, str] = ("MIN", "MAX", "X"),
+        button_widths: tuple[int, int, int] = (40, 40, 30),
+        height: int = 34,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("titleBar")
         self.setAutoFillBackground(True)
-        self.setFixedHeight(34)
+        self.setFixedHeight(height)
         self._drag_pos: QtCore.QPoint | None = None
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 8, 5)
         layout.setSpacing(6)
 
-        self.title_label = QtWidgets.QLabel(parent.windowTitle())
+        self.title_label = QtWidgets.QLabel(title or parent.windowTitle())
         self.title_label.setObjectName("titleLabel")
         self.title_label.setAttribute(
             QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
@@ -733,18 +742,14 @@ class TitleBar(QtWidgets.QWidget):
         layout.addWidget(self.title_label)
         layout.addStretch(1)
 
-        self.min_btn = QtWidgets.QPushButton("MIN")
+        self.min_btn = QtWidgets.QPushButton(button_labels[0])
         self.min_btn.setObjectName("titleButton")
-        self.max_btn = QtWidgets.QPushButton("MAX")
+        self.max_btn = QtWidgets.QPushButton(button_labels[1])
         self.max_btn.setObjectName("titleButton")
-        self.close_btn = QtWidgets.QPushButton("X")
+        self.close_btn = QtWidgets.QPushButton(button_labels[2])
         self.close_btn.setObjectName("titleClose")
 
-        for btn, min_w in (
-            (self.min_btn, 40),
-            (self.max_btn, 40),
-            (self.close_btn, 30),
-        ):
+        for btn, min_w in zip((self.min_btn, self.max_btn, self.close_btn), button_widths):
             btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
             btn.setMinimumWidth(min_w)
             btn.setFixedHeight(22)
@@ -770,6 +775,7 @@ class TitleBar(QtWidgets.QWidget):
                 event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
             )
             event.accept()
+            return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
@@ -811,10 +817,15 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.cpu = CPU()
         self.program = None
         self.addr_to_line = {}
+        self.settings = QtCore.QSettings("AMBProcessor", "AMBAssembler")
         self.current_file: str | None = None
         self.current_sample_name: str | None = None
         self.last_rtl_result: dict[str, object] | None = None
-        self.docs_window: QtWidgets.QWidget | None = None
+        self.html_windows: dict[Path, QtWidgets.QMainWindow] = {}
+        self.rtl_data_hex_override: Path | None = None
+        self.waveform_viewer = str(self.settings.value("rtl/waveform_viewer", "surfer"))
+        if self.waveform_viewer not in {"surfer", "gtkwave"}:
+            self.waveform_viewer = "surfer"
         self._last_reg_changes: set[int] = set()
         self._last_mem_changes: set[int] = set()
         self._highlight_bg = QtGui.QBrush(QtGui.QColor("#00ff6a"))
@@ -1161,13 +1172,14 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(8, 5, 8, 5)
         layout.setSpacing(6)
 
-        def add_button(label: str, slot) -> None:
+        def add_button(label: str, slot) -> QtWidgets.QPushButton:
             button = QtWidgets.QPushButton(label, strip)
             button.setObjectName("toolbarButton")
             button.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
             button.installEventFilter(self)
             button.clicked.connect(slot)
             layout.addWidget(button)
+            return button
 
         def add_separator() -> None:
             separator = QtWidgets.QFrame(strip)
@@ -1206,10 +1218,10 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         add_button("Stop", self.stop)
         add_button("Reset", self.reset_cpu)
         add_separator()
-        add_button("CPU Docs", self.open_cpu_docs)
+        add_button("CPU Blueprint", self.open_cpu_blueprint)
         add_button("Run RTL Sim", self.run_rtl_sim)
+        rtl_options_btn = add_button("RTL Options", lambda _checked=False: self.show_rtl_options_menu(rtl_options_btn))
         add_button("Open Waveform", self.open_latest_waveform)
-        add_button("Open RTL Report", self.open_latest_rtl_report)
         add_separator()
         add_button("Authors", self.show_authors)
         add_button("Help", self.show_help)
@@ -1357,10 +1369,10 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             ("Run", "Timed stepping", "Run the Python simulator until Stop or HLT."),
             ("Stop", "Timed stepping", "Stop the Python simulator timer without resetting state."),
             ("Reset", "Simulator state", "Reset registers and reload the assembled program."),
-            ("CPU Docs", "Local docs", "Open the bundled documentation app and SVG explorer."),
+            ("CPU Blueprint", "Docs and latest RTL run", "Open architecture docs, diagrams, authors, and the latest RTL run summary."),
             ("Run RTL Sim", "Verilog testbench", "Export program.hex, run the RTL bench, and generate report/wave files."),
-            ("Open Waveform", "Latest VCD/FST", "Open the latest RTL waveform with the bundled OSS CAD Suite viewer."),
-            ("Open RTL Report", "Latest HTML report", "Open the latest generated RTL simulation report."),
+            ("RTL Options", "Data image + viewer", "Choose/clear an optional data.hex file and select Surfer or GTKWave."),
+            ("Open Waveform", "Latest VCD/FST", "Open the latest RTL waveform with the selected viewer. Surfer is the default; GTKWave can use the curated .gtkw layout."),
             ("Sample Code", "Samples", "Load a predefined .ambasm example; the array-sum benchmark selects its matching RTL data image."),
         ]
 
@@ -1405,7 +1417,7 @@ JMP:    opcode7 | imm8
         <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>. <code>JPBLW</code> is modeled unsigned until the RTL signedness TODO is resolved.</p>
         {build_table(jump_rows)}
         <h4>Toolbar Buttons</h4>
-        <p>The top strip scrolls horizontally when the window is narrow. Use the sample dropdown to load ready-to-run examples; the array-sum benchmark also selects the matching RTL data image. RTL reports are written under <code>build/rtl_sim/...</code> in dev and app-data output directories when packaged.</p>
+        <p>The top strip scrolls horizontally when the window is narrow. Use the sample dropdown to load ready-to-run examples; the array-sum benchmark also selects the matching RTL data image. Arbitrary RTL runs are inspection traces, not pass/fail tests. Use <code>RTL Options</code> to choose a custom <code>data.hex</code> file and to select the waveform viewer.</p>
         {build_table(toolbar_rows)}
         <h4>Labels & Comments</h4>
         <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
@@ -1613,7 +1625,57 @@ Comments: // ; #
                 font-size: 9pt;
             }
             QToolTip { background: #031305; color: #d6ffed; border: 1px solid #15a967; }
-            QDialog { background: #030d04; color: #90ffd0; border: 1px solid #1bbb71; }
+            QDialog { background: #030d04; color: #90ffd0; border: 2px solid #1bbb71; }
+            QFileDialog {
+                background: #020a04;
+                color: #d6ffed;
+                border: 2px solid #31f3a2;
+            }
+            QFileDialog QLabel {
+                color: #d6ffed;
+                font-weight: 700;
+            }
+            QFileDialog QLineEdit,
+            QFileDialog QComboBox {
+                background: #031305;
+                color: #d6ffed;
+                border: 1px solid #2fe596;
+                min-height: 24px;
+                selection-background-color: #15522d;
+                selection-color: #effff8;
+            }
+            QFileDialog QComboBox QAbstractItemView,
+            QFileDialog QTreeView,
+            QFileDialog QListView {
+                background: #010703;
+                color: #8dffd0;
+                border: 1px solid #1bbb71;
+                selection-background-color: #0d4a2a;
+                selection-color: #effff8;
+                outline: none;
+            }
+            QFileDialog QHeaderView::section {
+                background: #07301b;
+                color: #d6ffed;
+                border: 1px solid #0d8f54;
+                padding: 4px 6px;
+            }
+            QFileDialog QPushButton,
+            QFileDialog QToolButton {
+                background: #06210d;
+                color: #bfffe0;
+                border: 1px solid #18d77f;
+                padding: 4px 8px;
+            }
+            QFileDialog QPushButton:hover,
+            QFileDialog QToolButton:hover {
+                background: #0b3a20;
+                color: #eafff4;
+            }
+            QFileDialog QPushButton:pressed,
+            QFileDialog QToolButton:pressed {
+                background: #10522e;
+            }
 
             QDockWidget#helpDock { background: #030d04; color: #90ffd0; border: 1px solid #15a967; }
             QDockWidget#helpDock::title {
@@ -1627,26 +1689,181 @@ Comments: // ; #
             """
         )
 
-    def _open_local_html(self, path: Path, title: str) -> None:
+    def _open_local_html(self, path: Path, title: str, fragment: str | None = None) -> None:
         path = path.resolve()
         if not path.exists():
             self.statusBar().showMessage(f"Missing file: {path}", 5000)
             return
+        url = QtCore.QUrl.fromLocalFile(str(path))
+        if fragment:
+            url.setFragment(fragment)
         if QtWebEngineWidgets is None:
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
+            QtGui.QDesktopServices.openUrl(url)
             return
 
-        window = QtWidgets.QMainWindow(self)
+        existing = self.html_windows.get(path)
+        if existing is not None:
+            existing.setWindowTitle(title)
+            view = existing.findChild(QtWebEngineWidgets.QWebEngineView)
+            if isinstance(view, QtWebEngineWidgets.QWebEngineView):
+                view.setUrl(url)
+            if existing.isMinimized():
+                existing.setWindowState(
+                    existing.windowState() & ~QtCore.Qt.WindowState.WindowMinimized
+                )
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        window = QtWidgets.QMainWindow()
+        window.setObjectName("htmlViewerWindow")
+        window.setWindowFlag(QtCore.Qt.WindowType.FramelessWindowHint, True)
+        window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose, True)
         window.setWindowTitle(title)
+        window.setWindowIcon(self.windowIcon())
         window.resize(1200, 800)
-        view = QtWebEngineWidgets.QWebEngineView(window)
-        view.setUrl(QtCore.QUrl.fromLocalFile(str(path)))
-        window.setCentralWidget(view)
+        light_palette = window.palette()
+        light_palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor("#f6f9fb"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtGui.QColor("#14212a"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor("#ffffff"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor("#14212a"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor("#edf4f8"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor("#14212a"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor("#0b84d8"))
+        light_palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("#ffffff"))
+        window.setPalette(light_palette)
+        window.setStyleSheet(
+            """
+            QMainWindow#htmlViewerWindow {
+                background: #f6f9fb;
+                color: #14212a;
+                border: none;
+            }
+            QWidget#htmlViewerShell {
+                background: #f6f9fb;
+                color: #14212a;
+                border: 1px solid #9fb5c4;
+            }
+            QWidget#htmlTitleBar {
+                background: #e9edf0;
+                color: #14212a;
+                border-bottom: 1px solid #c4d2dc;
+            }
+            QLabel#htmlTitleLabel {
+                color: #14212a;
+                font-weight: 700;
+                letter-spacing: 0.2px;
+            }
+            QPushButton#htmlTitleButton {
+                background: #e9edf0;
+                color: #14212a;
+                border: 1px solid transparent;
+                padding: 1px 8px;
+            }
+            QPushButton#htmlTitleButton:hover {
+                background: #d9e7ef;
+                border-color: #9fb5c4;
+            }
+            QPushButton#htmlTitleClose {
+                background: #e9edf0;
+                color: #14212a;
+                border: 1px solid transparent;
+                padding: 1px 8px;
+            }
+            QPushButton#htmlTitleClose:hover {
+                background: #f2d3d8;
+                border-color: #b55d6c;
+                color: #601522;
+            }
+            QFrame#htmlGripBar {
+                background: #f6f9fb;
+                border: none;
+            }
+            QSizeGrip#htmlSizeGrip {
+                background: #f6f9fb;
+            }
+            QMainWindow#htmlViewerWindow QToolTip {
+                background: #ffffff;
+                color: #14212a;
+                border: 1px solid #b9cedb;
+            }
+            QMainWindow#htmlViewerWindow QScrollBar:vertical,
+            QMainWindow#htmlViewerWindow QScrollBar:horizontal {
+                background: #edf4f8;
+                border: 1px solid #b9cedb;
+                margin: 0px;
+                width: 10px;
+                height: 10px;
+            }
+            QMainWindow#htmlViewerWindow QScrollBar::handle:vertical,
+            QMainWindow#htmlViewerWindow QScrollBar::handle:horizontal {
+                background: #8fb1c5;
+                border-radius: 5px;
+                min-width: 8px;
+                min-height: 20px;
+            }
+            QMainWindow#htmlViewerWindow QScrollBar::add-line,
+            QMainWindow#htmlViewerWindow QScrollBar::sub-line {
+                background: transparent;
+                border: none;
+                height: 0px;
+                width: 0px;
+            }
+            QMainWindow#htmlViewerWindow QScrollBar::add-page,
+            QMainWindow#htmlViewerWindow QScrollBar::sub-page {
+                background: #edf4f8;
+            }
+            """
+        )
+        shell = QtWidgets.QWidget(window)
+        shell.setObjectName("htmlViewerShell")
+        shell_layout = QtWidgets.QVBoxLayout(shell)
+        shell_layout.setContentsMargins(1, 1, 1, 1)
+        shell_layout.setSpacing(0)
+
+        title_bar = TitleBar(
+            window,
+            title=title,
+            button_labels=("-", "□", "×"),
+            button_widths=(30, 30, 30),
+        )
+        title_bar.setObjectName("htmlTitleBar")
+        title_bar.title_label.setObjectName("htmlTitleLabel")
+        title_bar.min_btn.setObjectName("htmlTitleButton")
+        title_bar.max_btn.setObjectName("htmlTitleButton")
+        title_bar.close_btn.setObjectName("htmlTitleClose")
+        shell_layout.addWidget(title_bar)
+
+        view = QtWebEngineWidgets.QWebEngineView(shell)
+        view.setUrl(url)
+        shell_layout.addWidget(view, 1)
+
+        grip_bar = QtWidgets.QFrame(shell)
+        grip_bar.setObjectName("htmlGripBar")
+        grip_bar.setFixedHeight(12)
+        grip_layout = QtWidgets.QHBoxLayout(grip_bar)
+        grip_layout.setContentsMargins(0, 0, 2, 2)
+        grip_layout.addStretch(1)
+        size_grip = QtWidgets.QSizeGrip(grip_bar)
+        size_grip.setObjectName("htmlSizeGrip")
+        grip_layout.addWidget(size_grip)
+        shell_layout.addWidget(grip_bar)
+
+        window.setCentralWidget(shell)
+        window.destroyed.connect(
+            lambda _obj=None, key=path: self.html_windows.pop(key, None)
+        )
+        self.html_windows[path] = window
         window.show()
-        self.docs_window = window
+        window.raise_()
+        window.activateWindow()
+
+    def open_cpu_blueprint(self, fragment: str | None = None) -> None:
+        self._open_local_html(docs_index_path(), "AMB CPU Blueprint", fragment)
 
     def open_cpu_docs(self) -> None:
-        self._open_local_html(docs_index_path(), "AMB CPU Documentation")
+        self.open_cpu_blueprint()
 
     def _load_rtl_runner(self):
         runner_path = rtl_runner_path()
@@ -1678,9 +1895,254 @@ Comments: // ; #
             if benchmark_data.exists():
                 return benchmark_data, "1", "25"
 
+        if self.rtl_data_hex_override is not None and self.rtl_data_hex_override.exists():
+            return self.rtl_data_hex_override, "0", "25"
+
         data_hex = out_dir / "data.hex"
         self._write_default_data_hex(data_hex)
         return data_hex, "0", "25"
+
+    def show_rtl_options_menu(self, anchor: QtWidgets.QWidget) -> None:
+        menu = QtWidgets.QMenu(self)
+        current_text = (
+            f"Data image: {self.rtl_data_hex_override}"
+            if self.rtl_data_hex_override is not None
+            else "Data image: generated default"
+        )
+        current_action = menu.addAction(current_text)
+        current_action.setEnabled(False)
+        viewer_action = menu.addAction(f"Waveform viewer: {self.waveform_viewer_title()}")
+        viewer_action.setEnabled(False)
+        menu.addSeparator()
+        choose_action = menu.addAction("Choose data.hex...")
+        clear_action = menu.addAction("Clear data image")
+        clear_action.setEnabled(self.rtl_data_hex_override is not None)
+        menu.addSeparator()
+        viewer_group = QtGui.QActionGroup(menu)
+        viewer_group.setExclusive(True)
+        surfer_action = menu.addAction("Use Surfer")
+        surfer_action.setCheckable(True)
+        surfer_action.setChecked(self.waveform_viewer == "surfer")
+        viewer_group.addAction(surfer_action)
+        gtkwave_action = menu.addAction("Use GTKWave")
+        gtkwave_action.setCheckable(True)
+        gtkwave_action.setChecked(self.waveform_viewer == "gtkwave")
+        viewer_group.addAction(gtkwave_action)
+
+        selected = menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height())))
+        if selected == choose_action:
+            self.choose_rtl_data_hex()
+        elif selected == clear_action:
+            self.clear_rtl_data_hex()
+        elif selected == surfer_action:
+            self.set_waveform_viewer("surfer")
+        elif selected == gtkwave_action:
+            self.set_waveform_viewer("gtkwave")
+
+    def waveform_viewer_title(self) -> str:
+        return "Surfer" if self.waveform_viewer == "surfer" else "GTKWave"
+
+    def set_waveform_viewer(self, viewer: str) -> None:
+        if viewer not in {"surfer", "gtkwave"}:
+            return
+        self.waveform_viewer = viewer
+        self.settings.setValue("rtl/waveform_viewer", viewer)
+        self.statusBar().showMessage(f"Waveform viewer: {self.waveform_viewer_title()}", 4000)
+
+    @staticmethod
+    def _dark_file_dialog_stylesheet() -> str:
+        return (
+            """
+            QDialog#darkFileDialogShell {
+                background: #020a04;
+                color: #d6ffed;
+                border: 2px solid #31f3a2;
+            }
+            QWidget#darkDialogTitleBar {
+                background: #031305;
+                color: #d6ffed;
+                border-bottom: 1px solid #31f3a2;
+            }
+            QLabel#darkDialogTitleLabel {
+                color: #d6ffed;
+                font-weight: 800;
+                letter-spacing: 0.2px;
+            }
+            QPushButton#darkDialogTitleButton {
+                background: #06210d;
+                color: #bfffe0;
+                border: 1px solid #18d77f;
+                padding: 1px 8px;
+            }
+            QPushButton#darkDialogTitleButton:hover {
+                background: #0b3a20;
+            }
+            QPushButton#darkDialogTitleClose {
+                background: #2a0f14;
+                color: #ffbdca;
+                border: 1px solid #8f2f40;
+                padding: 1px 8px;
+            }
+            QPushButton#darkDialogTitleClose:hover {
+                background: #5a1b2b;
+                color: #ffe0e6;
+            }
+            QFileDialog#darkFileDialogPanel {
+                background: #020a04;
+                color: #d6ffed;
+                border: none;
+            }
+            QFileDialog#darkFileDialogPanel QLabel {
+                color: #d6ffed;
+                font-weight: 700;
+            }
+            QFileDialog#darkFileDialogPanel QLineEdit,
+            QFileDialog#darkFileDialogPanel QComboBox {
+                background: #031305;
+                color: #d6ffed;
+                border: 1px solid #2fe596;
+                min-height: 24px;
+                selection-background-color: #15522d;
+                selection-color: #effff8;
+            }
+            QFileDialog#darkFileDialogPanel QComboBox QAbstractItemView,
+            QFileDialog#darkFileDialogPanel QTreeView,
+            QFileDialog#darkFileDialogPanel QListView {
+                background: #010703;
+                color: #8dffd0;
+                border: 1px solid #1bbb71;
+                selection-background-color: #0d4a2a;
+                selection-color: #effff8;
+                outline: none;
+            }
+            QFileDialog#darkFileDialogPanel QHeaderView::section {
+                background: #07301b;
+                color: #d6ffed;
+                border: 1px solid #0d8f54;
+                padding: 4px 6px;
+            }
+            QFileDialog#darkFileDialogPanel QPushButton,
+            QFileDialog#darkFileDialogPanel QToolButton {
+                background: #06210d;
+                color: #bfffe0;
+                border: 1px solid #18d77f;
+                padding: 4px 8px;
+            }
+            QFileDialog#darkFileDialogPanel QPushButton:hover,
+            QFileDialog#darkFileDialogPanel QToolButton:hover {
+                background: #0b3a20;
+                color: #eafff4;
+            }
+            QFileDialog#darkFileDialogPanel QPushButton:pressed,
+            QFileDialog#darkFileDialogPanel QToolButton:pressed {
+                background: #10522e;
+            }
+            """
+        )
+
+    def _run_dark_file_dialog(
+        self,
+        title: str,
+        start_dir: str,
+        file_filter: str,
+        accept_mode: QtWidgets.QFileDialog.AcceptMode,
+        file_mode: QtWidgets.QFileDialog.FileMode,
+    ) -> str:
+        shell = QtWidgets.QDialog(self)
+        shell.setObjectName("darkFileDialogShell")
+        shell.setWindowTitle(title)
+        shell.setWindowFlags(
+            QtCore.Qt.WindowType.Dialog | QtCore.Qt.WindowType.FramelessWindowHint
+        )
+        shell.setModal(True)
+        shell.resize(760, 520)
+        shell.setStyleSheet(self._dark_file_dialog_stylesheet())
+
+        layout = QtWidgets.QVBoxLayout(shell)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+
+        title_bar = TitleBar(
+            shell,
+            title=title,
+            button_labels=("-", "□", "×"),
+            button_widths=(30, 30, 30),
+        )
+        title_bar.setObjectName("darkDialogTitleBar")
+        title_bar.title_label.setObjectName("darkDialogTitleLabel")
+        title_bar.min_btn.setObjectName("darkDialogTitleButton")
+        title_bar.max_btn.setObjectName("darkDialogTitleButton")
+        title_bar.close_btn.setObjectName("darkDialogTitleClose")
+        layout.addWidget(title_bar)
+
+        dialog = QtWidgets.QFileDialog(shell, title, start_dir, file_filter)
+        dialog.setObjectName("darkFileDialogPanel")
+        dialog.setWindowFlags(QtCore.Qt.WindowType.Widget)
+        dialog.setOption(QtWidgets.QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setAcceptMode(accept_mode)
+        dialog.setFileMode(file_mode)
+        dialog.accepted.connect(shell.accept)
+        dialog.rejected.connect(shell.reject)
+        layout.addWidget(dialog, 1)
+
+        if shell.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return ""
+        selected = dialog.selectedFiles()
+        return selected[0] if selected else ""
+
+    def _get_open_filename(self, title: str, start_dir: str, file_filter: str) -> str:
+        return self._run_dark_file_dialog(
+            title,
+            start_dir,
+            file_filter,
+            QtWidgets.QFileDialog.AcceptMode.AcceptOpen,
+            QtWidgets.QFileDialog.FileMode.ExistingFile,
+        )
+
+    def _get_save_filename(self, title: str, start_dir: str, file_filter: str) -> str:
+        return self._run_dark_file_dialog(
+            title,
+            start_dir,
+            file_filter,
+            QtWidgets.QFileDialog.AcceptMode.AcceptSave,
+            QtWidgets.QFileDialog.FileMode.AnyFile,
+        )
+
+    def choose_rtl_data_hex(self) -> None:
+        start_dir = Path(self.current_file).parent if self.current_file else Path.home()
+        if self.rtl_data_hex_override is not None:
+            start_dir = self.rtl_data_hex_override.parent
+        filename = self._get_open_filename(
+            "Choose RTL data image",
+            str(start_dir),
+            "Hex files (*.hex);;All files (*)",
+        )
+        if not filename:
+            return
+        self.rtl_data_hex_override = Path(filename).resolve()
+        self.statusBar().showMessage(f"RTL data image: {self.rtl_data_hex_override}", 5000)
+
+    def clear_rtl_data_hex(self) -> None:
+        self.rtl_data_hex_override = None
+        self.statusBar().showMessage("RTL data image cleared; using generated default.", 5000)
+
+    @staticmethod
+    def _rtl_status_text(result: dict[str, object]) -> str:
+        report = result.get("testbench")
+        report_data = report if isinstance(report, dict) else {}
+        mode = str(result.get("run_mode", "inspection"))
+        status_kind = str(result.get("status_kind", ""))
+        cycles = report_data.get("cycles", "-")
+        halt = report_data.get("halt", "-")
+        if mode == "validation":
+            actual = report_data.get("actual", "-")
+            expected = report_data.get("expected", "-")
+            if status_kind == "pass":
+                return f"RTL benchmark pass: actual {actual} == expected {expected}"
+            return f"RTL benchmark fail: actual {actual} != expected {expected}"
+        if result.get("returncode") != 0:
+            return f"RTL run failed: exit {result.get('returncode')}"
+        return f"RTL trace complete: cycles {cycles}, halt {halt}"
 
     def run_rtl_sim(self) -> None:
         if not self.program:
@@ -1704,13 +2166,20 @@ Comments: // ; #
                 oss_root=oss_root if oss_root.exists() else None,
                 check_result=check_result,
                 expected=expected,
-                schematic=True,
+                schematic=False,
+                data_source=(
+                    "Array Sum Benchmark data"
+                    if check_result == "1"
+                    else (
+                        "Custom data.hex"
+                        if self.rtl_data_hex_override is not None and self.rtl_data_hex_override.exists()
+                        else "Generated default data.hex"
+                    )
+                ),
             )
             self.last_rtl_result = result
-            html_path = Path(str(result.get("html", "")))
-            self.statusBar().showMessage(f"RTL sim exited {result.get('returncode')}", 5000)
-            if html_path.exists():
-                self._open_local_html(html_path, "AMB RTL Simulation Report")
+            self.statusBar().showMessage(self._rtl_status_text(result), 7000)
+            self.open_cpu_blueprint("latest-rtl-run")
         except Exception as exc:
             self._log_nonfatal("run_rtl_sim", exc)
             self.statusBar().showMessage(f"RTL sim failed: {exc}", 8000)
@@ -1736,27 +2205,59 @@ Comments: // ; #
         return None
 
     def open_latest_rtl_report(self) -> None:
-        html_path = self._latest_artifact("html")
-        if html_path is None:
-            self.statusBar().showMessage("No RTL report yet. Run RTL Sim first.", 5000)
-            return
-        self._open_local_html(html_path, "AMB RTL Simulation Report")
+        self.open_cpu_blueprint("latest-rtl-run")
+
+    @staticmethod
+    def _tool_is_unresolved(tool: str, name: str) -> bool:
+        tool_path = Path(tool)
+        normalized = tool_path.name.lower()
+        expected = {name.lower(), f"{name.lower()}.exe"}
+        return normalized in expected and not tool_path.exists() and shutil.which(tool) is None
 
     def open_latest_waveform(self) -> None:
         wave_path = self._latest_artifact("fst", "vcd")
         if wave_path is None:
             self.statusBar().showMessage("No waveform yet. Run RTL Sim first.", 5000)
             return
+        gtkw_path = self._latest_artifact("gtkw")
         try:
             runner = self._load_rtl_runner()
             oss_root = bundled_oss_root()
             oss_root_arg = oss_root if oss_root.exists() else None
-            viewer = runner.tool_path("surfer", oss_root_arg)
-            if viewer == "surfer":
+            fallback_used = False
+
+            if self.waveform_viewer == "surfer":
+                viewer = runner.tool_path("surfer", oss_root_arg)
+                if self._tool_is_unresolved(viewer, "surfer"):
+                    viewer = runner.tool_path("gtkwave", oss_root_arg)
+                    fallback_used = True
+                    args = ["-a", str(gtkw_path), str(wave_path)] if gtkw_path is not None else [str(wave_path)]
+                else:
+                    args = [str(wave_path)]
+            else:
                 viewer = runner.tool_path("gtkwave", oss_root_arg)
-            cmd, use_shell = runner.command_for_tool(viewer, [str(wave_path)], oss_root_arg)
+                if self._tool_is_unresolved(viewer, "gtkwave"):
+                    viewer = runner.tool_path("surfer", oss_root_arg)
+                    fallback_used = True
+                    args = [str(wave_path)]
+                elif gtkw_path is not None:
+                    args = ["-a", str(gtkw_path), str(wave_path)]
+                else:
+                    args = [str(wave_path)]
+
+            if self._tool_is_unresolved(viewer, "surfer") or self._tool_is_unresolved(viewer, "gtkwave"):
+                raise FileNotFoundError("No waveform viewer found. Install Surfer or GTKWave, or install the repo-local OSS CAD Suite.")
+
+            if Path(viewer).name.lower().startswith("gtkwave") and gtkw_path is not None and args == [str(wave_path)]:
+                args = ["-a", str(gtkw_path), str(wave_path)]
+
+            cmd, use_shell = runner.command_for_tool(viewer, args, oss_root_arg)
             subprocess.Popen(cmd, shell=use_shell)
-            self.statusBar().showMessage(f"Opened waveform: {wave_path}", 3000)
+            viewer_name = Path(viewer).name
+            if fallback_used:
+                self.statusBar().showMessage(f"Opened waveform with fallback {viewer_name}: {wave_path}", 5000)
+            else:
+                self.statusBar().showMessage(f"Opened waveform with {viewer_name}: {wave_path}", 3000)
         except Exception as exc:
             self._log_nonfatal("open_latest_waveform", exc)
             self.statusBar().showMessage(f"Could not open waveform: {exc}", 8000)
@@ -1792,8 +2293,7 @@ Comments: // ; #
         self.sample_codes_combo.setCurrentIndex(0)
 
     def open_file(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
+        path = self._get_open_filename(
             "Open Assembly",
             "",
             "AMB Assembly (*.ambasm)",
@@ -1815,8 +2315,7 @@ Comments: // ; #
         self.statusBar().showMessage(f"Saved {self.current_file}", 3000)
 
     def save_file_as(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
+        path = self._get_save_filename(
             "Save Assembly",
             "",
             "AMB Assembly (*.ambasm)",
