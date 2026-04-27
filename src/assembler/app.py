@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import shutil
@@ -1665,7 +1666,33 @@ Comments: // ; #
             """
         )
 
-    def _open_local_html(self, path: Path, title: str, fragment: str | None = None) -> None:
+    @staticmethod
+    def _same_local_html_document(left: QtCore.QUrl, right: QtCore.QUrl) -> bool:
+        left_copy = QtCore.QUrl(left)
+        right_copy = QtCore.QUrl(right)
+        left_copy.setFragment("")
+        right_copy.setFragment("")
+        return left_copy == right_copy
+
+    @staticmethod
+    def _run_html_script_after_load(view: QtWebEngineWidgets.QWebEngineView, script: str) -> None:
+        def run_script(ok: bool) -> None:
+            try:
+                view.loadFinished.disconnect(run_script)
+            except TypeError:
+                pass
+            if ok:
+                view.page().runJavaScript(script)
+
+        view.loadFinished.connect(run_script)
+
+    def _open_local_html(
+        self,
+        path: Path,
+        title: str,
+        fragment: str | None = None,
+        after_load_script: str | None = None,
+    ) -> None:
         path = path.resolve()
         if not path.exists():
             self.statusBar().showMessage(f"Missing file: {path}", 5000)
@@ -1682,7 +1709,15 @@ Comments: // ; #
             existing.setWindowTitle(title)
             view = existing.findChild(QtWebEngineWidgets.QWebEngineView)
             if isinstance(view, QtWebEngineWidgets.QWebEngineView):
+                same_document = self._same_local_html_document(view.url(), url)
+                if after_load_script and not same_document:
+                    self._run_html_script_after_load(view, after_load_script)
                 view.setUrl(url)
+                if after_load_script and same_document:
+                    QtCore.QTimer.singleShot(
+                        0,
+                        lambda view=view, script=after_load_script: view.page().runJavaScript(script),
+                    )
             if existing.isMinimized():
                 existing.setWindowState(
                     existing.windowState() & ~QtCore.Qt.WindowState.WindowMinimized
@@ -1812,6 +1847,8 @@ Comments: // ; #
         shell_layout.addWidget(title_bar)
 
         view = QtWebEngineWidgets.QWebEngineView(shell)
+        if after_load_script:
+            self._run_html_script_after_load(view, after_load_script)
         view.setUrl(url)
         shell_layout.addWidget(view, 1)
 
@@ -1836,7 +1873,12 @@ Comments: // ; #
         window.activateWindow()
 
     def open_cpu_blueprint(self, fragment: str | None = None) -> None:
-        self._open_local_html(docs_index_path(), "AMB CPU Blueprint", fragment)
+        after_load_script = (
+            self._latest_rtl_injection_script()
+            if fragment == "latest-rtl-run"
+            else None
+        )
+        self._open_local_html(docs_index_path(), "AMB CPU Blueprint", fragment, after_load_script)
 
     def open_cpu_docs(self) -> None:
         self.open_cpu_blueprint()
@@ -2174,20 +2216,90 @@ Comments: // ; #
             self._log_nonfatal("run_rtl_sim", exc)
             self.statusBar().showMessage(f"RTL sim failed: {exc}", 8000)
 
-    def _latest_artifact(self, *keys: str) -> Path | None:
-        if not self.last_rtl_result:
-            candidate = rtl_run_root() / "gui_current" / "summary.json"
+    def _load_latest_rtl_result(self) -> dict[str, object] | None:
+        if isinstance(self.last_rtl_result, dict):
+            return self.last_rtl_result
+
+        candidate = rtl_run_root() / "gui_current" / "summary.json"
+        if candidate.exists():
+            try:
+                self.last_rtl_result = json.loads(candidate.read_text(encoding="utf-8"))
+            except Exception:
+                self.last_rtl_result = None
+        return self.last_rtl_result
+
+    @staticmethod
+    def _artifact_file_url(value: object) -> str | None:
+        if not value:
+            return None
+        return QtCore.QUrl.fromLocalFile(str(Path(str(value)))).toString()
+
+    def _latest_rtl_payload(self) -> dict[str, object] | None:
+        summary = self._load_latest_rtl_result()
+        if not isinstance(summary, dict):
+            return None
+
+        try:
+            summary_payload = json.loads(json.dumps(summary))
+        except TypeError:
+            summary_payload = {str(key): str(value) for key, value in summary.items()}
+
+        artifacts = summary_payload.get("artifacts")
+        artifact_paths = artifacts if isinstance(artifacts, dict) else {}
+        summary_path = rtl_run_root() / "gui_current" / "summary.json"
+        report_path = summary_payload.get("report") or artifact_paths.get("result_json")
+        result_payload = summary_payload.get("testbench")
+
+        if report_path:
+            candidate = Path(str(report_path))
             if candidate.exists():
                 try:
-                    import json
-
-                    self.last_rtl_result = json.loads(candidate.read_text(encoding="utf-8"))
+                    result_payload = json.loads(candidate.read_text(encoding="utf-8"))
                 except Exception:
-                    self.last_rtl_result = None
-        if not self.last_rtl_result:
+                    result_payload = summary_payload.get("testbench")
+
+        artifact_sources = {
+            "html": summary_payload.get("html") or artifact_paths.get("html"),
+            "result_json": report_path,
+            "summary_json": artifact_paths.get("summary_json") or summary_path,
+            "run_log": summary_payload.get("log") or artifact_paths.get("run_log"),
+            "vcd": summary_payload.get("vcd") or artifact_paths.get("vcd"),
+            "fst": summary_payload.get("fst") or artifact_paths.get("fst"),
+            "gtkw": summary_payload.get("gtkw") or artifact_paths.get("gtkw"),
+        }
+        artifact_urls = {
+            key: url
+            for key, value in artifact_sources.items()
+            if (url := self._artifact_file_url(value)) is not None
+        }
+
+        return {
+            "summary": summary_payload,
+            "result": result_payload if isinstance(result_payload, dict) else None,
+            "artifact_urls": artifact_urls,
+        }
+
+    def _latest_rtl_injection_script(self) -> str | None:
+        payload = self._latest_rtl_payload()
+        if payload is None:
             return None
+
+        encoded = json.dumps(payload).replace("</", "<\\/")
+        return (
+            f"window.__AMB_LATEST_RTL_RUN__ = {encoded};"
+            "if (window.__AMB_RENDER_LATEST_RTL_RUN__) {"
+            "window.__AMB_RENDER_LATEST_RTL_RUN__();"
+            "}"
+        )
+
+    def _latest_artifact(self, *keys: str) -> Path | None:
+        result = self._load_latest_rtl_result()
+        if not result:
+            return None
+        artifacts = result.get("artifacts")
+        artifact_paths = artifacts if isinstance(artifacts, dict) else {}
         for key in keys:
-            value = self.last_rtl_result.get(key)
+            value = result.get(key) or artifact_paths.get(key)
             if value:
                 path = Path(str(value))
                 if path.exists():
@@ -2195,7 +2307,11 @@ Comments: // ; #
         return None
 
     def open_latest_rtl_report(self) -> None:
-        self.open_cpu_blueprint("latest-rtl-run")
+        report = self._latest_artifact("html")
+        if report is None:
+            self.open_cpu_blueprint("latest-rtl-run")
+            return
+        self._open_local_html(report, "AMB RTL Run")
 
     @staticmethod
     def _tool_is_unresolved(tool: str, name: str) -> bool:
@@ -2241,7 +2357,7 @@ Comments: // ; #
             if Path(viewer).name.lower().startswith("gtkwave") and gtkw_path is not None and args == [str(wave_path)]:
                 args = ["-a", str(gtkw_path), str(wave_path)]
 
-            runner.popen_tool(viewer, args, runner.REPO_ROOT, oss_root_arg)
+            runner.popen_tool(viewer, args, runner.REPO_ROOT, oss_root_arg, hide_console=True)
             viewer_name = Path(viewer).name
             if fallback_used:
                 self.statusBar().showMessage(f"Opened waveform with fallback {viewer_name}: {wave_path}", 5000)

@@ -8,6 +8,7 @@ ROOT = Path.cwd()
 EXCLUDED_TREE_PARTS = {"__pycache__"}
 EXCLUDED_FILE_SUFFIXES = {".pyc", ".pyo"}
 EXCLUDED_FILE_NAMES = {"assembler_faulthandler.log"}
+RTL_DATA_EXCLUDED_FILE_SUFFIXES = {".py"}
 
 
 def platform_key():
@@ -20,21 +21,22 @@ def platform_key():
     return f"{system}-{machine}"
 
 
-def should_collect(path):
+def should_collect(path, excluded_file_suffixes=None):
+    excluded_file_suffixes = excluded_file_suffixes or set()
     if any(part in EXCLUDED_TREE_PARTS for part in path.parts):
         return False
-    if path.suffix.lower() in EXCLUDED_FILE_SUFFIXES:
+    if path.suffix.lower() in EXCLUDED_FILE_SUFFIXES or path.suffix.lower() in excluded_file_suffixes:
         return False
     return path.name not in EXCLUDED_FILE_NAMES
 
 
-def collect_tree(src, dest):
+def collect_tree(src, dest, excluded_file_suffixes=None):
     src_path = ROOT / src
     if not src_path.exists():
         return []
     entries = []
     for path in src_path.rglob("*"):
-        if path.is_file() and should_collect(path):
+        if path.is_file() and should_collect(path, excluded_file_suffixes):
             rel_parent = path.relative_to(src_path).parent
             entries.append((str(path), str(Path(dest) / rel_parent)))
     return entries
@@ -55,7 +57,7 @@ oss_root = resolve_oss_root_for_spec()
 
 datas = []
 datas += collect_tree("docs", "docs")
-datas += collect_tree("src/rtl", "src/rtl")
+datas += collect_tree("src/rtl", "src/rtl", RTL_DATA_EXCLUDED_FILE_SUFFIXES)
 datas += collect_tree("assets", "assets")
 datas += collect_tree(str(oss_root), str(oss_root))
 
