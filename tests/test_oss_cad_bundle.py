@@ -49,6 +49,7 @@ class OssCadBundleTests(unittest.TestCase):
                 "lib/ivl/ivl",
                 "lib/ivl/ivlpp",
                 "lib/ivl/system.vpi",
+                "libexec/realpath",
                 "libexec/ivl",
                 "libexec/ivlpp",
                 "lib/libunused.so",
@@ -77,6 +78,7 @@ class OssCadBundleTests(unittest.TestCase):
             self.assertIn("bin/vcd2fst", rels)
             self.assertIn("bin/surfer", rels)
             self.assertIn("lib/ivl/vvp.conf", rels)
+            self.assertIn("libexec/realpath", rels)
             self.assertIn("libexec/ivl", rels)
             self.assertIn("libexec/ivlpp", rels)
 
@@ -100,6 +102,7 @@ class OssCadBundleTests(unittest.TestCase):
             for tool in ("iverilog", "vvp", "vcd2fst", "surfer"):
                 write_file(root, f"bin/{tool}", "#!/usr/bin/env bash\n")
                 write_bytes(root, f"libexec/{tool}", b"\xcf\xfa\xed\xfe" + b"payload")
+            write_bytes(root, "libexec/realpath", b"\xcf\xfa\xed\xfe" + b"payload")
 
             for rel_path in (
                 "VERSION",
@@ -128,6 +131,7 @@ class OssCadBundleTests(unittest.TestCase):
             self.assertIn("libexec/vvp", binary_rels)
             self.assertIn("libexec/vcd2fst", binary_rels)
             self.assertIn("libexec/surfer", binary_rels)
+            self.assertIn("libexec/realpath", binary_rels)
             self.assertIn("lib/ivl/system.vpi", binary_rels)
 
 

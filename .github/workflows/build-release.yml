@@ -112,12 +112,27 @@ jobs:
           python -m pip install --no-cache-dir -r requirements.txt
 
       - name: Install OSS CAD Suite
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+
+      - name: Locate OSS CAD Suite
         run: |
-          python tools/install_oss_cad_suite.py \
-            --version "${OSS_CAD_SUITE_VERSION}" \
-            --platform "${{ matrix.platform }}"
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          tool = shutil.which("iverilog") or shutil.which("iverilog.exe")
+          if tool is None:
+              raise SystemExit("iverilog not found on PATH after setup-oss-cad-suite")
+
+          root = Path(tool).resolve().parent.parent
+          print(f"AMB_OSS_CAD_SUITE_ROOT={root}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"AMB_OSS_CAD_SUITE_ROOT={root}\n")
+          PY
 
       - name: Run source smoke tests
         env:
