@@ -224,7 +224,11 @@ def popen_tool(
 ) -> subprocess.Popen:
     cmd, use_shell = command_for_tool(tool, args, oss_root)
     env = tool_environment(oss_root)
-    actual_cwd = tool_working_directory(cwd, oss_root)
+    actual_cwd = (
+        Path(args[-1]).resolve().parent
+        if Path(tool).name.lower().startswith("surfer") and args
+        else tool_working_directory(cwd, oss_root)
+    )
     with clean_child_dll_search():
         return subprocess.Popen(
             cmd,
@@ -344,6 +348,19 @@ def write_gtkw_save(out_dir: Path, wave_path: Path) -> Path:
     ]
     gtkw_path.write_text("\n".join(lines), encoding="utf-8")
     return gtkw_path
+
+
+def write_surfer_config(out_dir: Path) -> Path:
+    config_path = out_dir / ".surfer" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "[layout]\n"
+        'hierarchy_style = "Tree"\n'
+        'parameter_display_location = "None"\n'
+        "show_empty_scopes = false\n",
+        encoding="utf-8",
+    )
+    return config_path
 
 
 def html_escape(value: object) -> str:
@@ -520,6 +537,7 @@ def run_simulation(
         out_dir / "summary.json",
         out_dir / "index.html",
         out_dir / "cpu_trace.gtkw",
+        out_dir / ".surfer" / "config.toml",
         out_dir / "cpu_schematic.dot",
         out_dir / "cpu_schematic.svg",
     ):
@@ -587,6 +605,8 @@ def run_simulation(
 
     wave_path = fst_path if fst_path.exists() else vcd_path
     gtkw_path = write_gtkw_save(out_dir, wave_path) if wave_path.exists() else None
+    if wave_path.exists():
+        write_surfer_config(out_dir)
     report_data = read_json_file(report_path)
     run_mode, status_kind, status_label = classify_run(
         returncode=proc.returncode,
@@ -632,7 +652,7 @@ def run_simulation(
     summary_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
     if wave_viewer is not None and wave_path.exists():
-        if Path(wave_viewer).name.startswith("gtkwave") and gtkw_path is not None:
+        if Path(wave_viewer).name.lower().startswith("gtkwave") and gtkw_path is not None:
             popen_tool(wave_viewer, ["-a", str(gtkw_path), str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
         else:
             popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
