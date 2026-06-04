@@ -3001,6 +3001,13 @@ def _existing_resource(label: str, path: Path) -> str:
     return str(path)
 
 
+def _file_tail(path: Path, max_chars: int = 4000) -> str:
+    if not path.is_file():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return text[-max_chars:]
+
+
 def run_self_test(*, require_oss: bool = False) -> dict[str, object]:
     source = "\n".join(
         (
@@ -3069,9 +3076,14 @@ def run_self_test_rtl() -> dict[str, object]:
         data_source="Self-test array_sum_data.hex",
     )
     if result.get("returncode") != 0 or result.get("status_kind") != "pass":
+        log_value = result.get("log")
+        log_path = Path(str(log_value)) if log_value else None
+        log_tail = _file_tail(log_path) if log_path else ""
         raise RuntimeError(
             "RTL self-test failed: "
             f"returncode={result.get('returncode')} status={result.get('status_kind')}"
+            + (f" log={log_path}" if log_path else "")
+            + (f"\n--- run.log tail ---\n{log_tail}" if log_tail else "")
         )
 
     payload["mode"] = "self-test-rtl"

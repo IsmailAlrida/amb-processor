@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import tarfile
 import urllib.request
 import zipfile
@@ -84,12 +85,24 @@ def release_asset(version: str, platform_name: str) -> tuple[str, str]:
         request.add_header("X-GitHub-Api-Version", "2022-11-28")
     with urllib.request.urlopen(request) as response:
         payload = json.loads(response.read().decode("utf-8"))
+    return select_release_asset(payload, version, platform_name)
+
+
+def release_asset_suffixes(platform_name: str) -> tuple[str, ...]:
+    if platform_name.startswith("windows"):
+        return (".exe", ".zip")
+    return (".tgz", ".zip")
+
+
+def select_release_asset(payload: dict[str, object], version: str, platform_name: str) -> tuple[str, str]:
     assets = payload.get("assets", [])
     prefix = f"oss-cad-suite-{platform_name}-"
     for asset in assets:
-        name = asset.get("name", "")
-        if name.startswith(prefix) and name.endswith((".tgz", ".zip")):
-            return name, asset["browser_download_url"]
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name", ""))
+        if name.startswith(prefix) and name.endswith(release_asset_suffixes(platform_name)):
+            return name, str(asset["browser_download_url"])
     raise SystemExit(f"No OSS CAD Suite asset for {platform_name} in release {version}")
 
 
@@ -104,6 +117,8 @@ def extract_archive(archive: Path, dest_parent: Path) -> Path:
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as zip_file:
             zip_file.extractall(dest_parent)
+    elif archive.suffix == ".exe":
+        subprocess.run([str(archive), f"-o{dest_parent}", "-y"], check=True)
     else:
         with tarfile.open(archive, "r:*") as tar_file:
             tar_file.extractall(dest_parent)

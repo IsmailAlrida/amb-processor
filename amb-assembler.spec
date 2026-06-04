@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 import platform
 
-from tools.oss_cad_bundle import collect_oss_cad_suite_datas, options_from_env
+from tools.oss_cad_bundle import collect_oss_cad_suite_bundle, options_from_env
 
 
 ROOT = Path.cwd()
@@ -72,22 +72,25 @@ icon_file = ROOT / "assets" / "amb.ico"
 bundle_icon_file = ROOT / "assets" / "amb.icns"
 
 datas = []
+binaries = []
 datas += collect_tree("docs", "docs")
 datas += collect_tree("src/rtl", "src/rtl", RTL_DATA_EXCLUDED_FILE_SUFFIXES)
 datas += collect_tree("assets", "assets")
-datas += collect_oss_cad_suite_datas(
+oss_bundle = collect_oss_cad_suite_bundle(
     ROOT / oss_source_root,
     oss_bundle_root,
     options=options_from_env(platform_key()),
     marker_dir=ROOT / "build",
     report_path=ROOT / "build" / "oss-cad-suite-bundle-report.json",
 )
+datas += oss_bundle.datas
+binaries += oss_bundle.binaries
 
 
 a = Analysis(
     [str(ROOT / "src" / "assembler" / "__main__.py")],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=[
         "PyQt6.QtWebEngineCore",

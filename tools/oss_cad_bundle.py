@@ -2,7 +2,7 @@
 """Select OSS CAD Suite files for AMB PyInstaller bundles.
 
 This module does not prune or mutate the downloaded OSS CAD Suite. It only
-builds PyInstaller ``datas`` entries for the subset the frozen app should ship.
+builds PyInstaller entries for the subset the frozen app should ship.
 """
 
 from __future__ import annotations
@@ -91,6 +91,12 @@ class BundleOptions:
         return tuple(dict.fromkeys(tools))
 
 
+@dataclass(frozen=True)
+class BundleEntries:
+    datas: list[tuple[str, str]]
+    binaries: list[tuple[str, str]]
+
+
 def truthy_env(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
     if value is None:
@@ -167,6 +173,21 @@ def is_elf_binary(path: Path) -> bool:
     try:
         with path.open("rb") as handle:
             return handle.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
+def is_mach_o_binary(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(4) in {
+                b"\xfe\xed\xfa\xce",
+                b"\xfe\xed\xfa\xcf",
+                b"\xce\xfa\xed\xfe",
+                b"\xcf\xfa\xed\xfe",
+                b"\xca\xfe\xba\xbe",
+                b"\xca\xfe\xba\xbf",
+            }
     except OSError:
         return False
 
@@ -356,19 +377,34 @@ def add_schematic_runtime(entries: dict[Path, Path], source_root: Path, dest_roo
         add_tree(entries, source_root, dest_root, rel_tree)
 
 
-def collect_oss_cad_suite_datas(
+def pyinstaller_tuple(source: Path, dest: Path) -> tuple[str, str]:
+    return str(source), str(dest)
+
+
+def split_pyinstaller_entries(entries: dict[Path, Path], options: BundleOptions) -> BundleEntries:
+    datas: list[tuple[str, str]] = []
+    binaries: list[tuple[str, str]] = []
+    for source, dest in sorted(entries.items(), key=lambda item: str(item[0])):
+        if options.platform_name.startswith("darwin") and is_mach_o_binary(source):
+            binaries.append(pyinstaller_tuple(source, dest))
+        else:
+            datas.append(pyinstaller_tuple(source, dest))
+    return BundleEntries(datas=datas, binaries=binaries)
+
+
+def collect_oss_cad_suite_bundle(
     source_root: Path,
     dest_root: Path | str,
     *,
     options: BundleOptions | None = None,
     marker_dir: Path | None = None,
     report_path: Path | None = None,
-) -> list[tuple[str, str]]:
+) -> BundleEntries:
     source_root = source_root.resolve()
     dest_root = Path(dest_root)
     options = options or options_from_env()
     if not source_root.exists():
-        return []
+        return BundleEntries(datas=[], binaries=[])
 
     entries: dict[Path, Path] = {}
     for rel_path in ROOT_FILES:
@@ -399,9 +435,26 @@ def collect_oss_cad_suite_datas(
         entries[marker_source.resolve()] = dest_root
 
     if report_path is not None:
-        write_report(source_root, entries, options, report_path)
+        write_report(source_root, entries, options, report_path, split_pyinstaller_entries(entries, options))
 
-    return [(str(source), str(dest)) for source, dest in sorted(entries.items(), key=lambda item: str(item[0]))]
+    return split_pyinstaller_entries(entries, options)
+
+
+def collect_oss_cad_suite_datas(
+    source_root: Path,
+    dest_root: Path | str,
+    *,
+    options: BundleOptions | None = None,
+    marker_dir: Path | None = None,
+    report_path: Path | None = None,
+) -> list[tuple[str, str]]:
+    return collect_oss_cad_suite_bundle(
+        source_root,
+        dest_root,
+        options=options,
+        marker_dir=marker_dir,
+        report_path=report_path,
+    ).datas
 
 
 def bundle_summary(source_root: Path, entries: dict[Path, Path], options: BundleOptions) -> dict[str, object]:
@@ -426,8 +479,17 @@ def bundle_summary(source_root: Path, entries: dict[Path, Path], options: Bundle
     }
 
 
-def write_report(source_root: Path, entries: dict[Path, Path], options: BundleOptions, report_path: Path) -> None:
+def write_report(
+    source_root: Path,
+    entries: dict[Path, Path],
+    options: BundleOptions,
+    report_path: Path,
+    bundle_entries: BundleEntries | None = None,
+) -> None:
     report = bundle_summary(source_root, entries, options)
+    bundle_entries = bundle_entries or split_pyinstaller_entries(entries, options)
+    report["pyinstaller_data_count"] = len(bundle_entries.datas)
+    report["pyinstaller_binary_count"] = len(bundle_entries.binaries)
     report["files"] = [
         str(path.relative_to(source_root)) if path.is_relative_to(source_root) else str(path)
         for path in sorted(entries)
@@ -457,7 +519,12 @@ def main() -> int:
         include_gtkwave_gui=args.include_gtkwave_gui,
         include_schematic=args.include_schematic,
     )
-    collect_oss_cad_suite_datas(args.root, "tools/oss-cad-suite/preview/oss-cad-suite", options=options, report_path=args.report)
+    collect_oss_cad_suite_bundle(
+        args.root,
+        "tools/oss-cad-suite/preview/oss-cad-suite",
+        options=options,
+        report_path=args.report,
+    )
     return 0
 
 
