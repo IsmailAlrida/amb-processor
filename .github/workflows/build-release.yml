@@ -8,6 +8,17 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_bump:
+        description: "Release bump to build and publish; use none for smoke only."
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: read
@@ -17,8 +28,134 @@ env:
   OSS_CAD_SUITE_VERSION: "2026-04-18"
 
 jobs:
+  smoke:
+    name: Smoke
+    if: >-
+      ${{
+        !startsWith(github.ref, 'refs/tags/v') &&
+        (
+          github.event_name != 'workflow_dispatch' ||
+          github.event.inputs.release_bump == 'none'
+        )
+      }}
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: ${{ github.workflow }}-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir -r requirements.txt
+
+      - name: Run smoke checks
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest discover -s tests
+          python -m assembler --self-test
+
+  release_meta:
+    name: Release Metadata
+    if: >-
+      ${{
+        startsWith(github.ref, 'refs/tags/v') ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          (
+            github.event.inputs.release_bump == 'patch' ||
+            github.event.inputs.release_bump == 'minor' ||
+            github.event.inputs.release_bump == 'major'
+          )
+        )
+      }}
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      build_version: ${{ steps.version.outputs.build_version }}
+      target_sha: ${{ steps.version.outputs.target_sha }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute release version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+            build_version="${release_tag#v}"
+          else
+            bump="${{ github.event.inputs.release_bump }}"
+            latest="$(
+              git tag -l 'v[0-9]*.[0-9]*.[0-9]*' |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+              sort -V |
+              tail -n 1 || true
+            )"
+            if [[ -n "${latest}" ]]; then
+              IFS=. read -r major minor patch <<< "${latest#v}"
+            else
+              major=0
+              minor=0
+              patch=0
+            fi
+
+            case "${bump}" in
+              patch)
+                patch=$((patch + 1))
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              *)
+                raise_error="Unsupported release bump: ${bump}"
+                echo "${raise_error}" >&2
+                exit 1
+                ;;
+            esac
+
+            release_tag="v${major}.${minor}.${patch}"
+            build_version="${major}.${minor}.${patch}"
+          fi
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "build_version=${build_version}"
+            echo "target_sha=${GITHUB_SHA}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Release tag: ${release_tag}"
+          echo "Build version: ${build_version}"
+
   build:
     name: Build ${{ matrix.platform }}
+    if: ${{ needs.release_meta.outputs.release_tag != '' }}
+    needs: release_meta
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,15 +186,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Compute build version
+      - name: Set build version
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="0.0.0-${GITHUB_SHA::7}"
-          fi
-          echo "BUILD_VERSION=${version}" >> "${GITHUB_ENV}"
-          echo "Build version: ${version}"
+          echo "BUILD_VERSION=${{ needs.release_meta.outputs.build_version }}" >> "${GITHUB_ENV}"
+          echo "Build version: ${{ needs.release_meta.outputs.build_version }}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -191,11 +323,16 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    if: ${{ needs.release_meta.outputs.release_tag != '' }}
+    needs:
+      - release_meta
+      - build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v7
@@ -206,11 +343,22 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.release_meta.outputs.release_tag }}
+          TARGET_SHA: ${{ needs.release_meta.outputs.target_sha }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" release-artifacts/* --clobber
+          echo "Publishing ${RELEASE_TAG} for ${GH_REPO} at ${TARGET_SHA}"
+          if ! compgen -G "release-artifacts/*" >/dev/null; then
+            echo "No release artifacts found in release-artifacts" >&2
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" release-artifacts/* --clobber --repo "${GH_REPO}"
           else
-            gh release create "${GITHUB_REF_NAME}" release-artifacts/* \
-              --title "${GITHUB_REF_NAME}" \
-              --notes "Automated AMB Assembler build for ${GITHUB_REF_NAME}."
+            gh release create "${RELEASE_TAG}" release-artifacts/* \
+              --repo "${GH_REPO}" \
+              --target "${TARGET_SHA}" \
+              --title "${RELEASE_TAG}" \
+              --notes "Automated AMB Assembler build for ${RELEASE_TAG} at ${TARGET_SHA}."
           fi
