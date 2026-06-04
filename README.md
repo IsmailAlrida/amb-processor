@@ -58,7 +58,10 @@ The AMB processor is documented below directly from the component references. Th
 - **File**: cpu.v
 
 ## Diagram
-![Diagram](docs/cpu_components/cpu.svg "Diagram")
+<div align="center" style="background: #ffffff; padding: 16px;">
+  <img src="docs/cpu_components/cpu.svg" alt="CPU core diagram" width="100%">
+</div>
+
 ## Description
 
 Single-cycle AMB CPU core that connects instruction fetch, decode, register file, ALU, and external data memory buses.
@@ -162,7 +165,10 @@ Single-cycle AMB CPU core that connects instruction fetch, decode, register file
 - **File**: control_unit.v
 
 ## Diagram
-![Diagram](docs/cpu_components/controller.svg "Diagram")
+<div align="center" style="background: #ffffff; padding: 16px;">
+  <img src="docs/cpu_components/controller.svg" alt="Control unit diagram" width="100%">
+</div>
+
 ## Description
 
 Combinational decoder that maps ISA v1 opcodes into CPU datapath control signals.
@@ -301,7 +307,10 @@ Combinational decoder that maps ISA v1 opcodes into CPU datapath control signals
 - **File**: reg_file.v
 
 ## Diagram
-![Diagram](docs/cpu_components/reg_file.svg "Diagram")
+<div align="center" style="background: #ffffff; padding: 16px;">
+  <img src="docs/cpu_components/reg_file.svg" alt="Register file diagram" width="100%">
+</div>
+
 ## Description
 
 Sixteen-slot architectural register file with asynchronous reads and synchronous writes.
@@ -377,7 +386,10 @@ Sixteen-slot architectural register file with asynchronous reads and synchronous
 - **File**: alu.v
 
 ## Diagram
-![Diagram](docs/cpu_components/alu.svg "Diagram")
+<div align="center" style="background: #ffffff; padding: 16px;">
+  <img src="docs/cpu_components/alu.svg" alt="ALU diagram" width="100%">
+</div>
+
 ## Description
 
 Combinational arithmetic logic unit for ISA v1 register operations, moves, shifts, and comparisons.
@@ -431,7 +443,10 @@ Combinational arithmetic logic unit for ISA v1 register operations, moves, shift
 - **File**: i_memory.v
 
 ## Diagram
-![Diagram](docs/cpu_components/imem.svg "Diagram")
+<div align="center" style="background: #ffffff; padding: 16px;">
+  <img src="docs/cpu_components/imem.svg" alt="Instruction memory diagram" width="100%">
+</div>
+
 ## Description
 
 Byte-addressed instruction memory model with asynchronous instruction fetch.
@@ -474,7 +489,10 @@ Byte-addressed instruction memory model with asynchronous instruction fetch.
 - **File**: d_memory.v
 
 ## Diagram
-![Diagram](docs/cpu_components/dmem.svg "Diagram")
+<div align="center" style="background: #ffffff; padding: 16px;">
+  <img src="docs/cpu_components/dmem.svg" alt="Data memory diagram" width="100%">
+</div>
+
 ## Description
 
 Byte-addressed data memory model with asynchronous reads and synchronous writes.
