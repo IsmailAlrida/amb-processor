@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import os
 import platform
+
+from tools.oss_cad_bundle import collect_oss_cad_suite_datas, options_from_env
 
 
 ROOT = Path.cwd()
@@ -46,18 +49,25 @@ def collect_tree(src, dest, excluded_file_suffixes=None):
     return entries
 
 
-def resolve_oss_root_for_spec():
+def resolve_oss_source_root_for_spec():
+    env_root = os.environ.get("AMB_OSS_CAD_SUITE_ROOT")
     candidates = [
         Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite",
         Path("tools") / "oss-cad-suite" / "oss-cad-suite",
     ]
+    if env_root:
+        env_path = Path(env_root).expanduser()
+        if not env_path.is_absolute():
+            env_path = ROOT / env_path
+        candidates.insert(0, env_path)
     for candidate in candidates:
         if (ROOT / candidate).exists():
             return candidate
     return candidates[0]
 
 
-oss_root = resolve_oss_root_for_spec()
+oss_source_root = resolve_oss_source_root_for_spec()
+oss_bundle_root = Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite"
 icon_file = ROOT / "assets" / "amb.ico"
 bundle_icon_file = ROOT / "assets" / "amb.icns"
 
@@ -65,7 +75,13 @@ datas = []
 datas += collect_tree("docs", "docs")
 datas += collect_tree("src/rtl", "src/rtl", RTL_DATA_EXCLUDED_FILE_SUFFIXES)
 datas += collect_tree("assets", "assets")
-datas += collect_tree(str(oss_root), str(oss_root))
+datas += collect_oss_cad_suite_datas(
+    ROOT / oss_source_root,
+    oss_bundle_root,
+    options=options_from_env(platform_key()),
+    marker_dir=ROOT / "build",
+    report_path=ROOT / "build" / "oss-cad-suite-bundle-report.json",
+)
 
 
 a = Analysis(

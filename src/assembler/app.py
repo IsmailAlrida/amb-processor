@@ -2958,8 +2958,8 @@ Comments: // ; #
         dialog.exec()
 
 
-SELF_TEST_REQUIRED_OSS_TOOLS = ("yosys", "iverilog", "vvp", "vcd2fst", "dot")
-SELF_TEST_WAVE_TOOLS = ("surfer", "gtkwave")
+SELF_TEST_REQUIRED_OSS_TOOLS = ("iverilog", "vvp", "vcd2fst")
+SELF_TEST_WAVE_TOOLS = ("surfer",)
 
 
 def _oss_executable(root: Path, name: str) -> Path:
@@ -2984,7 +2984,7 @@ def _validate_oss_tools(root: Path, *, require_wave_viewer: bool = True) -> dict
     if wave is not None:
         found[wave] = str(_oss_executable(root, wave))
     elif require_wave_viewer:
-        missing.append("surfer_or_gtkwave")
+        missing.append("surfer")
 
     if missing:
         raise FileNotFoundError(f"OSS CAD Suite missing required tools: {', '.join(missing)}")
