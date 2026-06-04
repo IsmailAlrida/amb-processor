@@ -6,13 +6,19 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from tools.oss_cad_bundle import BundleOptions, collect_oss_cad_suite_datas
+from tools.oss_cad_bundle import BundleOptions, collect_oss_cad_suite_bundle, collect_oss_cad_suite_datas
 
 
 def write_file(root: Path, rel_path: str, content: str = "x") -> None:
     path = root / rel_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def write_bytes(root: Path, rel_path: str, content: bytes) -> None:
+    path = root / rel_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
 
 
 def source_rels(entries: list[tuple[str, str]], root: Path) -> set[str]:
@@ -86,6 +92,43 @@ class OssCadBundleTests(unittest.TestCase):
             self.assertNotIn("share/graphviz/lefty.psp", rels)
             self.assertNotIn("share/gtkwave/gtkwave.tcl", rels)
             self.assertTrue(report_path.exists())
+
+    def test_darwin_mach_o_payloads_are_binaries_but_wrappers_stay_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "oss-cad-suite"
+
+            for tool in ("iverilog", "vvp", "vcd2fst", "surfer"):
+                write_file(root, f"bin/{tool}", "#!/usr/bin/env bash\n")
+                write_bytes(root, f"libexec/{tool}", b"\xcf\xfa\xed\xfe" + b"payload")
+
+            for rel_path in (
+                "VERSION",
+                "README",
+                "lib/ivl/vvp.conf",
+                "lib/ivl/vvp.tgt",
+                "libexec/ivl",
+                "libexec/ivlpp",
+            ):
+                write_file(root, rel_path)
+            write_bytes(root, "lib/ivl/system.vpi", b"\xfe\xed\xfa\xcf" + b"payload")
+
+            bundle = collect_oss_cad_suite_bundle(
+                root,
+                "tools/oss-cad-suite/darwin-arm64/oss-cad-suite",
+                options=BundleOptions(platform_name="darwin-arm64"),
+            )
+            data_rels = source_rels(bundle.datas, root)
+            binary_rels = source_rels(bundle.binaries, root)
+
+            self.assertIn("bin/iverilog", data_rels)
+            self.assertIn("bin/vvp", data_rels)
+            self.assertIn("bin/vcd2fst", data_rels)
+            self.assertIn("bin/surfer", data_rels)
+            self.assertIn("libexec/iverilog", binary_rels)
+            self.assertIn("libexec/vvp", binary_rels)
+            self.assertIn("libexec/vcd2fst", binary_rels)
+            self.assertIn("libexec/surfer", binary_rels)
+            self.assertIn("lib/ivl/system.vpi", binary_rels)
 
 
 if __name__ == "__main__":
