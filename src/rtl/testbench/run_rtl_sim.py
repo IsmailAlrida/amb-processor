@@ -222,13 +222,17 @@ def popen_tool(
     *,
     hide_console: bool = False,
 ) -> subprocess.Popen:
-    cmd, use_shell = command_for_tool(tool, args, oss_root)
     env = tool_environment(oss_root)
-    actual_cwd = (
-        Path(args[-1]).resolve().parent
-        if Path(tool).name.lower().startswith("surfer") and args
-        else tool_working_directory(cwd, oss_root)
-    )
+    actual_cwd = tool_working_directory(cwd, oss_root)
+    launch_args = args
+    if Path(tool).name.lower().startswith("surfer") and args:
+        wave_path = Path(args[-1]).resolve()
+        actual_cwd = wave_path.parent
+        command_file = write_surfer_command_file(actual_cwd)
+        write_surfer_config(actual_cwd)
+        launch_args = ["--command-file", str(command_file), str(wave_path)]
+
+    cmd, use_shell = command_for_tool(tool, launch_args, oss_root)
     with clean_child_dll_search():
         return subprocess.Popen(
             cmd,
@@ -354,6 +358,8 @@ def write_surfer_config(out_dir: Path) -> Path:
     config_path = out_dir / ".surfer" / "config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
+        'autoload_sibling_state_files = "Never"\n'
+        "\n"
         "[layout]\n"
         'hierarchy_style = "Tree"\n'
         'parameter_display_location = "None"\n'
@@ -361,6 +367,12 @@ def write_surfer_config(out_dir: Path) -> Path:
         encoding="utf-8",
     )
     return config_path
+
+
+def write_surfer_command_file(out_dir: Path) -> Path:
+    command_path = out_dir / "cpu_trace.sucl"
+    command_path.write_text("preference_set_hierarchy_style Tree\n", encoding="utf-8")
+    return command_path
 
 
 def html_escape(value: object) -> str:
@@ -537,6 +549,7 @@ def run_simulation(
         out_dir / "summary.json",
         out_dir / "index.html",
         out_dir / "cpu_trace.gtkw",
+        out_dir / "cpu_trace.sucl",
         out_dir / ".surfer" / "config.toml",
         out_dir / "cpu_schematic.dot",
         out_dir / "cpu_schematic.svg",
@@ -605,8 +618,6 @@ def run_simulation(
 
     wave_path = fst_path if fst_path.exists() else vcd_path
     gtkw_path = write_gtkw_save(out_dir, wave_path) if wave_path.exists() else None
-    if wave_path.exists():
-        write_surfer_config(out_dir)
     report_data = read_json_file(report_path)
     run_mode, status_kind, status_label = classify_run(
         returncode=proc.returncode,
