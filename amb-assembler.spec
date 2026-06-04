@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import os
 import platform
+
+from tools.oss_cad_bundle import collect_oss_cad_suite_datas, options_from_env
 
 
 ROOT = Path.cwd()
@@ -18,6 +21,10 @@ def platform_key():
         return "windows-x64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x64"
+    if system == "darwin" and machine in {"arm64", "aarch64"}:
+        return "darwin-arm64"
+    if system == "darwin" and machine in {"x86_64", "amd64"}:
+        return "darwin-x64"
     return f"{system}-{machine}"
 
 
@@ -42,24 +49,39 @@ def collect_tree(src, dest, excluded_file_suffixes=None):
     return entries
 
 
-def resolve_oss_root_for_spec():
+def resolve_oss_source_root_for_spec():
+    env_root = os.environ.get("AMB_OSS_CAD_SUITE_ROOT")
     candidates = [
         Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite",
         Path("tools") / "oss-cad-suite" / "oss-cad-suite",
     ]
+    if env_root:
+        env_path = Path(env_root).expanduser()
+        if not env_path.is_absolute():
+            env_path = ROOT / env_path
+        candidates.insert(0, env_path)
     for candidate in candidates:
         if (ROOT / candidate).exists():
             return candidate
     return candidates[0]
 
 
-oss_root = resolve_oss_root_for_spec()
+oss_source_root = resolve_oss_source_root_for_spec()
+oss_bundle_root = Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite"
+icon_file = ROOT / "assets" / "amb.ico"
+bundle_icon_file = ROOT / "assets" / "amb.icns"
 
 datas = []
 datas += collect_tree("docs", "docs")
 datas += collect_tree("src/rtl", "src/rtl", RTL_DATA_EXCLUDED_FILE_SUFFIXES)
 datas += collect_tree("assets", "assets")
-datas += collect_tree(str(oss_root), str(oss_root))
+datas += collect_oss_cad_suite_datas(
+    ROOT / oss_source_root,
+    oss_bundle_root,
+    options=options_from_env(platform_key()),
+    marker_dir=ROOT / "build",
+    report_path=ROOT / "build" / "oss-cad-suite-bundle-report.json",
+)
 
 
 a = Analysis(
@@ -96,7 +118,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=[str(ROOT / "assets" / "amb.ico")],
+    icon=[str(icon_file)] if icon_file.exists() else None,
 )
 coll = COLLECT(
     exe,
@@ -107,3 +129,11 @@ coll = COLLECT(
     upx_exclude=[],
     name="amb-assembler",
 )
+
+if platform.system() == "Darwin":
+    app = BUNDLE(
+        coll,
+        name="amb-assembler.app",
+        icon=str(bundle_icon_file) if bundle_icon_file.exists() else None,
+        bundle_identifier="ae.uaeu.amb-processor.assembler",
+    )

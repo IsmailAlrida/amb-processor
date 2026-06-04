@@ -1,0 +1,201 @@
+name: Build and Release AMB Assembler
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  OSS_CAD_SUITE_VERSION: "2026-04-18"
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+            frozen_exe: dist/amb-assembler/amb-assembler
+            artifact_name: amb-assembler-linux-x64
+          - os: windows-2025
+            platform: windows-x64
+            frozen_exe: dist/amb-assembler/amb-assembler.exe
+            artifact_name: amb-assembler-windows-x64
+          - os: macos-14
+            platform: darwin-arm64
+            frozen_exe: dist/amb-assembler.app/Contents/MacOS/amb-assembler
+            artifact_name: amb-assembler-darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+            frozen_exe: dist/amb-assembler.app/Contents/MacOS/amb-assembler
+            artifact_name: amb-assembler-darwin-x64
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Compute build version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-${GITHUB_SHA::7}"
+          fi
+          echo "BUILD_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "Build version: ${version}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            patchelf \
+            libegl1 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xfixes0 \
+            libxcb-xinerama0
+          gcc --version
+
+      - name: Verify macOS compiler
+        if: startsWith(matrix.platform, 'darwin-')
+        run: |
+          xcode-select -p
+          clang --version
+
+      - name: Verify Windows compiler
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found"
+          }
+          $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $install) {
+            throw "MSVC Build Tools not found"
+          }
+          cmd /c "call `"$install\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir -r requirements.txt
+
+      - name: Install OSS CAD Suite
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python tools/install_oss_cad_suite.py \
+            --version "${OSS_CAD_SUITE_VERSION}" \
+            --platform "${{ matrix.platform }}"
+
+      - name: Run source smoke tests
+        env:
+          PYTHONPATH: src
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m assembler --self-test
+          python -m assembler --self-test-rtl
+
+      - name: Build PyInstaller bundle
+        run: |
+          python -m PyInstaller --noconfirm --clean amb-assembler.spec
+
+      - name: Run frozen smoke tests
+        run: |
+          python tools/ci_run_frozen_smoke.py --exe "${{ matrix.frozen_exe }}"
+
+      - name: Install Inno Setup
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress --yes
+
+      - name: Build Windows installer
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $installerDir = Join-Path $pwd "dist\installer"
+          if (Test-Path $installerDir) {
+            Remove-Item -Recurse -Force $installerDir
+          }
+          New-Item -ItemType Directory -Path $installerDir | Out-Null
+          $isccCandidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            throw "ISCC.exe not found after Inno Setup install"
+          }
+          & $iscc /Qp "/DMyRepoRoot=$pwd" "/O$installerDir" "/Famb-assembler-windows-x64-$env:BUILD_VERSION-setup" simcompile.iss
+
+      - name: Package artifact
+        run: |
+          python tools/ci_package_artifact.py \
+            --platform "${{ matrix.platform }}" \
+            --version "${BUILD_VERSION}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" release-artifacts/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" release-artifacts/* \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Automated AMB Assembler build for ${GITHUB_REF_NAME}."
+          fi

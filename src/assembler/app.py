@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -2921,9 +2922,9 @@ Comments: // ; #
         )
 
         rows = [
-            ("Alrida Ismail", "700040283"),
-            ("Muddathir Yousif", "700039149"),
-            ("Basel Alhomsi", "700036896"),
+            ("Alrida Ismail", "ALRIDAS_UNIVERSITY_ID"),
+            ("Muddathir Yousif", "MUDDATHIRS_UNIVERSITY_ID"),
+            ("Basel Alhomsi", "BASELS_UNIVERSITY_ID"),
         ]
         for r, (name, sid) in enumerate(rows):
             table.setItem(r, 0, QtWidgets.QTableWidgetItem(name))
@@ -2957,6 +2958,161 @@ Comments: // ; #
         dialog.exec()
 
 
+SELF_TEST_REQUIRED_OSS_TOOLS = ("iverilog", "vvp", "vcd2fst")
+SELF_TEST_WAVE_TOOLS = ("surfer",)
+
+
+def _oss_executable(root: Path, name: str) -> Path:
+    suffix = ".exe" if os.name == "nt" else ""
+    return root / "bin" / f"{name}{suffix}"
+
+
+def _validate_oss_tools(root: Path, *, require_wave_viewer: bool = True) -> dict[str, object]:
+    if not root.exists():
+        raise FileNotFoundError(f"OSS CAD Suite root not found: {root}")
+
+    found: dict[str, str] = {}
+    missing: list[str] = []
+    for name in SELF_TEST_REQUIRED_OSS_TOOLS:
+        candidate = _oss_executable(root, name)
+        if candidate.exists():
+            found[name] = str(candidate)
+        else:
+            missing.append(name)
+
+    wave = next((name for name in SELF_TEST_WAVE_TOOLS if _oss_executable(root, name).exists()), None)
+    if wave is not None:
+        found[wave] = str(_oss_executable(root, wave))
+    elif require_wave_viewer:
+        missing.append("surfer")
+
+    if missing:
+        raise FileNotFoundError(f"OSS CAD Suite missing required tools: {', '.join(missing)}")
+
+    return {
+        "root": str(root),
+        "tools": found,
+    }
+
+
+def _existing_resource(label: str, path: Path) -> str:
+    if not path.exists():
+        raise FileNotFoundError(f"{label} not found: {path}")
+    return str(path)
+
+
+def run_self_test(*, require_oss: bool = False) -> dict[str, object]:
+    source = "\n".join(
+        (
+            "LIL 5",
+            "MOV R0, IMR",
+            "HLT",
+            "",
+        )
+    )
+    program = assemble(source)
+    if len(program.words) != 3:
+        raise RuntimeError(f"Assembler smoke expected 3 instructions, got {len(program.words)}")
+
+    resources = {
+        "docs_index": _existing_resource("CPU docs index", docs_index_path()),
+        "app_icon": _existing_resource("App icon", resource_path("assets", "amb.ico")),
+        "rtl_testbench": _existing_resource("RTL testbench", resource_path("src", "rtl", "testbench", "tb.v")),
+        "array_sum_program": _existing_resource(
+            "Array-sum program image",
+            resource_path("src", "rtl", "testbench", "array_sum_program.hex"),
+        ),
+        "array_sum_data": _existing_resource(
+            "Array-sum data image",
+            resource_path("src", "rtl", "testbench", "array_sum_data.hex"),
+        ),
+    }
+
+    oss_root = bundled_oss_root()
+    if oss_root.exists():
+        oss_payload: dict[str, object] = _validate_oss_tools(oss_root)
+        oss_payload["exists"] = True
+    elif require_oss:
+        raise FileNotFoundError(f"OSS CAD Suite root not found: {oss_root}")
+    else:
+        oss_payload = {
+            "root": str(oss_root),
+            "exists": False,
+        }
+
+    return {
+        "status": "pass",
+        "mode": "self-test",
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "app_root": str(resource_path()),
+        "assembler_words": [f"{word:04x}" for word in program.words],
+        "resources": resources,
+        "oss_cad_suite": oss_payload,
+    }
+
+
+def run_self_test_rtl() -> dict[str, object]:
+    payload = run_self_test(require_oss=True)
+    oss_root = bundled_oss_root()
+    _validate_oss_tools(oss_root)
+
+    out_dir = rtl_run_root() / "self_test"
+    result = rtl_runner.run_simulation(
+        run_name="self_test",
+        program=resource_path("src", "rtl", "testbench", "array_sum_program.hex"),
+        data=resource_path("src", "rtl", "testbench", "array_sum_data.hex"),
+        out_dir=out_dir,
+        oss_root=oss_root,
+        check_result="1",
+        expected="25",
+        schematic=False,
+        data_source="Self-test array_sum_data.hex",
+    )
+    if result.get("returncode") != 0 or result.get("status_kind") != "pass":
+        raise RuntimeError(
+            "RTL self-test failed: "
+            f"returncode={result.get('returncode')} status={result.get('status_kind')}"
+        )
+
+    payload["mode"] = "self-test-rtl"
+    payload["rtl_simulation"] = {
+        "returncode": result.get("returncode"),
+        "status_kind": result.get("status_kind"),
+        "status_label": result.get("status_label"),
+        "oss_root": result.get("oss_root"),
+        "summary_json": result.get("artifacts", {}).get("summary_json")
+        if isinstance(result.get("artifacts"), dict)
+        else None,
+    }
+    return payload
+
+
+def _handle_self_test_args(argv: list[str]) -> bool:
+    if "--self-test-rtl" in argv:
+        runner = run_self_test_rtl
+    elif "--self-test" in argv:
+        runner = run_self_test
+    else:
+        return False
+
+    try:
+        print(json.dumps(runner(), indent=2))
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+                indent=2,
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+    return True
+
+
 def main() -> None:
     def _global_excepthook(exc_type, exc_value, exc_tb) -> None:
         msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -2969,6 +3125,9 @@ def main() -> None:
             pass
 
     sys.excepthook = _global_excepthook
+    if _handle_self_test_args(sys.argv[1:]):
+        return
+
     try:
         fh_stream = open("assembler_faulthandler.log", "a", encoding="utf-8")
         faulthandler.enable(fh_stream)

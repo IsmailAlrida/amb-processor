@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AMB Processor Documentation</title>
+  <style>
+    :root {
+      --ink: #14212a;
+      --muted: #5f7280;
+      --paper: #edf4f8;
+      --panel: #ffffff;
+      --line: #b9cedb;
+      --blue: #0b84d8;
+      --blue-dark: #075b96;
+      --orange: #f97316;
+      --header-h: 76px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top left, rgba(11, 132, 216, 0.12), transparent 34rem),
+        linear-gradient(135deg, #f8fbfd, var(--paper));
+      color: var(--ink);
+      font-family: "Segoe UI", Verdana, Geneva, sans-serif;
+    }
+
+    header {
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 2px 18px rgba(20, 45, 60, 0.10);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      flex: 0 0 auto;
+      min-width: 168px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 4px 2px 7px 2px;
+      width: 100%;
+      scrollbar-width: thin;
+    }
+
+    .shell-control {
+      flex: 0 0 auto;
+      border-color: var(--line);
+      background: #ffffff;
+      color: var(--blue-dark);
+    }
+
+    .shell-control:hover {
+      border-color: var(--blue);
+      background: #eef8ff;
+      color: var(--blue-dark);
+    }
+
+    button:disabled,
+    button:disabled:hover,
+    button:disabled:active {
+      border-color: #cad7df;
+      background: #eef3f6;
+      color: #8aa0af;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    button {
+      flex: 0 0 auto;
+      border: 1px solid var(--blue);
+      border-radius: 5px;
+      background: var(--blue);
+      color: white;
+      padding: 8px 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+    }
+
+    button:hover,
+    button.active {
+      background: white;
+      color: var(--blue);
+    }
+
+    button:active {
+      background: var(--orange);
+      border-color: var(--orange);
+      color: white;
+      transform: translateY(1px);
+    }
+
+    main {
+      height: calc(100vh - var(--header-h));
+      padding: 12px;
+    }
+
+    .surface {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(20, 45, 60, 0.12);
+    }
+
+    iframe {
+      display: none;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: var(--panel);
+    }
+
+    .doc-bar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 3;
+      display: none;
+      max-width: calc(100% - 24px);
+      padding: 8px 10px;
+      border: 1px solid rgba(11, 132, 216, 0.22);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 8px 22px rgba(20, 45, 60, 0.14);
+      backdrop-filter: blur(8px);
+    }
+
+    .doc-bar strong {
+      display: block;
+      color: var(--blue-dark);
+      font-size: 13px;
+    }
+
+    .doc-bar span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    #svgExplorer {
+      display: none;
+      width: 100%;
+      height: 100%;
+      background:
+        linear-gradient(rgba(15, 40, 54, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15, 40, 54, 0.05) 1px, transparent 1px),
+        #fbfdff;
+      background-size: 24px 24px;
+      cursor: grab;
+      user-select: none;
+    }
+
+    #svgExplorer.dragging {
+      cursor: grabbing;
+    }
+
+    .svg-toolbar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 4;
+      display: none;
+      gap: 8px;
+      align-items: center;
+      max-width: calc(100% - 24px);
+      overflow-x: auto;
+      padding: 8px;
+      border: 1px solid rgba(11, 132, 216, 0.22);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 8px 22px rgba(20, 45, 60, 0.16);
+      backdrop-filter: blur(8px);
+    }
+
+    .svg-toolbar button {
+      padding: 6px 9px;
+      font-size: 12px;
+    }
+
+    .hint {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    #svgImage {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+      max-width: none;
+      max-height: none;
+      pointer-events: none;
+    }
+
+    .guide {
+      display: none;
+      height: 100%;
+      overflow: auto;
+      padding: 28px 34px;
+      background:
+        radial-gradient(circle at top right, rgba(11, 132, 216, 0.10), transparent 28rem),
+        white;
+    }
+
+    .guide h2 {
+      margin: 0 0 10px 0;
+      font-size: 26px;
+    }
+
+    .guide p {
+      max-width: 860px;
+      line-height: 1.5;
+      color: #344653;
+    }
+
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+    }
+
+    .guide-item {
+      border-top: 2px solid var(--blue);
+      padding-top: 10px;
+    }
+
+    .guide-item strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--blue-dark);
+    }
+
+    .authors {
+      position: relative;
+      display: none;
+      height: 100%;
+      overflow: auto;
+      padding: 36px;
+      background: #ffffff;
+    }
+
+    .authors-logo {
+      position: absolute;
+      top: 28px;
+      left: 30px;
+      width: min(260px, calc(100% - 60px));
+      height: auto;
+      object-fit: contain;
+    }
+
+    .authors-shell {
+      max-width: 980px;
+      min-height: 100%;
+      display: grid;
+      align-content: center;
+      gap: 24px;
+      margin: 0 auto;
+      padding-top: 58px;
+    }
+
+    .authors-hero {
+      border-left: 5px solid var(--blue);
+      padding: 4px 0 6px 20px;
+    }
+
+    .authors-kicker {
+      margin: 0 0 8px 0;
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .authors h2 {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(34px, 7vw, 76px);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+    }
+
+    .authors-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .authors-meta-item {
+      border-top: 1px solid rgba(11, 132, 216, 0.20);
+      padding-top: 12px;
+    }
+
+    .authors-meta-item span {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .authors-meta-item strong {
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .authors-table-wrap {
+      overflow-x: auto;
+      border: 1px solid rgba(11, 132, 216, 0.24);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 18px 42px rgba(20, 45, 60, 0.12);
+    }
+
+    .authors table {
+      width: 100%;
+      min-width: 520px;
+      border-collapse: collapse;
+    }
+
+    .authors th {
+      padding: 14px 18px;
+      background: var(--blue-dark);
+      color: #eef8ff;
+      font-size: 12px;
+      letter-spacing: 0.10em;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    .authors td {
+      padding: 18px;
+      border-top: 1px solid rgba(11, 132, 216, 0.16);
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .authors tr.highlight td {
+      background: rgba(11, 132, 216, 0.10);
+    }
+
+    .authors td:last-child {
+      width: 210px;
+      color: var(--blue-dark);
+      font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+      font-size: 15px;
+    }
+
+    .latest-run {
+      display: none;
+      height: 100%;
+      overflow: auto;
+      padding: 28px 34px;
+      background:
+        radial-gradient(circle at top right, rgba(11, 132, 216, 0.10), transparent 28rem),
+        white;
+    }
+
+    .latest-run h2 {
+      margin: 0 0 10px 0;
+      font-size: 26px;
+    }
+
+    .latest-run p {
+      max-width: 880px;
+      line-height: 1.5;
+      color: #344653;
+    }
+
+    .run-status {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      margin: 8px 0 18px;
+      border-radius: 999px;
+      padding: 8px 13px;
+      color: white;
+      font-weight: 800;
+      background: var(--blue);
+    }
+
+    .run-status.pass,
+    .run-status.ok {
+      background: #168a55;
+    }
+
+    .run-status.fail,
+    .run-status.error {
+      background: #b42318;
+    }
+
+    .run-status.warn {
+      background: #b45309;
+    }
+
+    .run-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .run-panel {
+      margin-top: 22px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 10px 28px rgba(20, 45, 60, 0.08);
+    }
+
+    .run-panel h3 {
+      margin: 0 0 12px 0;
+      color: var(--ink);
+      font-size: 18px;
+    }
+
+    .artifact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .artifact-card {
+      border-top: 2px solid var(--line);
+      padding-top: 10px;
+    }
+
+    .artifact-card.available {
+      border-color: var(--blue);
+    }
+
+    .artifact-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+
+    .artifact-card strong {
+      display: block;
+      margin-top: 5px;
+      color: var(--ink);
+      font-size: 16px;
+    }
+
+    .raw-artifacts {
+      margin-top: 18px;
+    }
+
+    .raw-artifacts summary {
+      width: max-content;
+      cursor: pointer;
+      color: var(--blue-dark);
+      font-weight: 800;
+    }
+
+    .run-metric {
+      border-top: 2px solid var(--blue);
+      padding-top: 10px;
+    }
+
+    .run-metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+
+    .run-metric strong {
+      display: block;
+      margin-top: 5px;
+      color: #14212a;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+
+    .run-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .run-links a {
+      border: 1px solid var(--blue);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #eef8ff;
+      color: var(--blue-dark);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .run-links a:hover {
+      background: white;
+      color: var(--blue);
+    }
+
+    .run-links a.artifact-external {
+      border-color: #b9cedb;
+      background: #f6fafc;
+      color: #48606f;
+    }
+
+    .run-paths {
+      display: grid;
+      gap: 7px;
+      margin-top: 18px;
+      color: #344653;
+      font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .empty-run {
+      display: grid;
+      align-content: center;
+      min-height: 100%;
+    }
+
+    .missing {
+      display: none;
+      padding: 28px 34px;
+      color: #8a3b10;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>AMB CPU Blueprint</h1>
+      <div class="subtitle">Docs, diagrams + RTL runs</div>
+    </div>
+    <button id="backButton" class="shell-control" type="button" disabled>Back</button>
+    <nav id="nav" aria-label="Documentation pages"></nav>
+  </header>
+
+  <main>
+    <div class="surface">
+      <div id="svgToolbar" class="svg-toolbar">
+        <button id="zoomIn" type="button">Zoom In</button>
+        <button id="zoomOut" type="button">Zoom Out</button>
+        <button id="zoomReset" type="button">Reset</button>
+        <button id="zoomFit" type="button">Fit</button>
+        <span class="hint">Drag to pan. Wheel to zoom. Header stays fixed.</span>
+      </div>
+      <div id="svgExplorer">
+        <img id="svgImage" alt="Selected SVG diagram">
+      </div>
+      <div id="docBar" class="doc-bar">
+        <strong id="docTitle">Document</strong>
+        <span id="docHint">Loaded inside CPU Blueprint. Use Back to return.</span>
+      </div>
+      <iframe id="viewer" title="AMB documentation viewer"></iframe>
+      <section id="guide" class="guide">
+        <h2>Guide</h2>
+        <p>Use the top strip to move between generated module docs, schematic diagrams, ISA notes, authors, and the latest RTL run summary. SVG pages use this explorer so you can zoom and pan without changing the header or buttons.</p>
+        <div class="guide-grid">
+          <div class="guide-item"><strong>CPU Blueprint</strong>The PyQt <em>CPU Blueprint</em> button opens this local architecture and run-results app in a WebEngine window.</div>
+          <div class="guide-item"><strong>Latest RTL Run</strong>Shows the most recent RTL trace summary. Arbitrary programs are inspection runs; the array-sum sample is the benchmark validation run.</div>
+          <div class="guide-item"><strong>CPU Core</strong>Opens the standalone expanded CPU core diagram from <code>cpu_v1_core.svg</code>.</div>
+          <div class="guide-item"><strong>CPU High Level</strong>Shows the overview block diagram from <code>cpu_high_level.svg</code>.</div>
+          <div class="guide-item"><strong>Module Docs</strong>Generated HTML pages describe the ports and module contracts.</div>
+          <div class="guide-item"><strong>Run RTL Sim</strong>In the PyQt app, assembles the current program, runs the Verilog testbench, and writes artifacts under <code>build/rtl_sim/...</code> in dev.</div>
+          <div class="guide-item"><strong>Open Waveform</strong>Opens the latest <code>.fst</code> or <code>.vcd</code> with the selected OSS CAD Suite viewer. Surfer is the default; GTKWave is available from RTL Options.</div>
+          <div class="guide-item"><strong>Sample Code</strong>The sample dropdown loads ready-to-run assembly. The array-sum benchmark also selects the matching benchmark data image for RTL simulation.</div>
+          <div class="guide-item"><strong>Authors</strong>Shows the project group information mirrored from the PyQt app.</div>
+        </div>
+      </section>
+      <section id="latestRun" class="latest-run">
+        <div id="latestRunContent" class="empty-run">
+          <h2>Latest RTL Run</h2>
+          <p>Run RTL Sim to generate a trace.</p>
+        </div>
+      </section>
+      <section id="authors" class="authors">
+        <img class="authors-logo" src="../assets/UAEU_logo.png" alt="UAEU logo">
+        <div class="authors-shell">
+          <div class="authors-hero">
+            <p class="authors-kicker">Project Authors</p>
+            <h2>AMB Processor Group Project</h2>
+          </div>
+          <div class="authors-meta">
+            <div class="authors-meta-item">
+              <span>Course</span>
+              <strong>ELEC 462 -- Computer Architecture and Organization</strong>
+            </div>
+            <div class="authors-meta-item">
+              <span>Instructor</span>
+              <strong>Dr Abulhalim Jallad</strong>
+            </div>
+          </div>
+          <div class="authors-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student Name</th>
+                  <th>Student ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="highlight">
+                  <td>Alrida Ismail</td>
+                  <td>ALRIDAS_UNIVERSITY_ID</td>
+                </tr>
+                <tr>
+                  <td>Muddathir Yousif</td>
+                  <td>MUDDATHIRS_UNIVERSITY_ID</td>
+                </tr>
+                <tr>
+                  <td>Basel Alhomsi</td>
+                  <td>BASELS_UNIVERSITY_ID</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      <section id="missing" class="missing">
+        <h2>Page not found</h2>
+        <p>The selected documentation artifact is not present in this checkout or package.</p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const pages = [
+      { label: "Guide", type: "guide", id: "guide" },
+      { label: "Latest RTL Run", type: "latestRun", id: "latest-rtl-run" },
+      { label: "Authors", type: "authors", id: "authors" },
+      { label: "CPU Core", type: "svg", target: "cpu_v1_core.svg" },
+      { label: "CPU High Level", type: "svg", target: "cpu_high_level.svg" },
+      { label: "CPU Doc", type: "doc", target: "cpu.html" },
+      { label: "ALU", type: "doc", target: "alu.html" },
+      { label: "ALU SVG", type: "svg", target: "alu.svg" },
+      { label: "Control", type: "doc", target: "control_unit.html" },
+      { label: "Control SVG", type: "svg", target: "control_unit.svg" },
+      { label: "Reg File", type: "doc", target: "reg_file.html" },
+      { label: "Reg File SVG", type: "svg", target: "reg_file.svg" },
+      { label: "I Memory", type: "doc", target: "i_memory.html" },
+      { label: "I Memory SVG", type: "svg", target: "imem.svg" },
+      { label: "D Memory", type: "doc", target: "d_memory.html" },
+      { label: "D Memory SVG", type: "svg", target: "dmem.svg" },
+      { label: "ISA RTL", type: "doc", target: "../ISA_rtl_reference.html" }
+    ];
+
+    const nav = document.getElementById("nav");
+    const backButton = document.getElementById("backButton");
+    const viewer = document.getElementById("viewer");
+    const svgToolbar = document.getElementById("svgToolbar");
+    const svgExplorer = document.getElementById("svgExplorer");
+    const svgImage = document.getElementById("svgImage");
+    const docBar = document.getElementById("docBar");
+    const docTitle = document.getElementById("docTitle");
+    const docHint = document.getElementById("docHint");
+    const guide = document.getElementById("guide");
+    const latestRun = document.getElementById("latestRun");
+    const latestRunContent = document.getElementById("latestRunContent");
+    const authors = document.getElementById("authors");
+    const missing = document.getElementById("missing");
+    const states = new Map();
+    const pageButtons = new Map();
+    const latestRunBase = "../build/rtl_sim/gui_current/";
+    const latestRunSummary = `${latestRunBase}summary.json`;
+    let activePage = null;
+    let backRoute = null;
+    let dragging = false;
+    let dragStart = { x: 0, y: 0, panX: 0, panY: 0 };
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function displayValue(value, fallback = "-") {
+      return value === undefined || value === null || value === "" ? fallback : escapeHtml(value);
+    }
+
+    function yesNo(value) {
+      return value ? "Available" : "Missing";
+    }
+
+    function runMetric(label, value, fallback = "-") {
+      return `<div class="run-metric"><span>${escapeHtml(label)}</span><strong>${displayValue(value, fallback)}</strong></div>`;
+    }
+
+    function artifactCard(label, available, note) {
+      return `
+        <div class="artifact-card ${available ? "available" : ""}">
+          <span>${escapeHtml(label)}</span>
+          <strong>${yesNo(available)}</strong>
+          <p>${escapeHtml(note)}</p>
+        </div>
+      `;
+    }
+
+    function latestRunEmpty() {
+      latestRunContent.className = "empty-run";
+      latestRunContent.innerHTML = `
+        <h2>Latest RTL Run</h2>
+        <p>Run RTL Sim to generate a trace. Arbitrary programs produce inspection artifacts; the array-sum sample produces benchmark validation.</p>
+      `;
+    }
+
+    function artifactLink(label, href, enabled = true, routeInBody = true) {
+      if (!enabled) {
+        return "";
+      }
+      const safeLabel = escapeHtml(label);
+      const safeHref = escapeHtml(href);
+      if (routeInBody) {
+        return `<a href="${safeHref}" data-blueprint-doc data-label="${safeLabel}">${safeLabel}</a>`;
+      }
+      return `<a class="artifact-external" href="${safeHref}" target="_blank" rel="noreferrer">${safeLabel}</a>`;
+    }
+
+    function latestRunInjectedPayload() {
+      const payload = window.__AMB_LATEST_RTL_RUN__;
+      return payload && typeof payload === "object" ? payload : null;
+    }
+
+    function renderInjectedLatestRun() {
+      const payload = latestRunInjectedPayload();
+      if (!payload || !payload.summary) {
+        return false;
+      }
+      renderLatestRun(payload.summary, payload.result || payload.summary.testbench || null, payload.artifact_urls || {});
+      return true;
+    }
+
+    function renderLatestRun(summary, result, artifactUrls = {}) {
+      const tb = result || summary.testbench || {};
+      const mode = summary.run_mode === "validation" ? "Benchmark validation" : "RTL inspection";
+      const statusKind = summary.status_kind || "ok";
+      const statusLabel = summary.status_label || "Trace complete";
+      const isValidation = summary.run_mode === "validation";
+      const validationMetrics = isValidation ? `
+        ${runMetric("Expected", `0x${displayValue(tb.expected_hex)}`)}
+        ${runMetric("Actual", `0x${displayValue(tb.actual_hex)}`)}
+        ${runMetric("Result address", `0x${displayValue(tb.result_addr_hex)}`)}
+      ` : "";
+      const rawLinks = [
+        artifactLink("Full HTML report", artifactUrls.html || `${latestRunBase}index.html`, summary.html),
+        artifactLink("Result JSON", artifactUrls.result_json || `${latestRunBase}result.json`, summary.report),
+        artifactLink("Summary JSON", artifactUrls.summary_json || `${latestRunBase}summary.json`, true),
+        artifactLink("Run log", artifactUrls.run_log || `${latestRunBase}run.log`, summary.log),
+        artifactLink("VCD", artifactUrls.vcd || `${latestRunBase}cpu_tb.vcd`, summary.vcd, false),
+        artifactLink("FST", artifactUrls.fst || `${latestRunBase}cpu_tb.fst`, summary.fst, false),
+        artifactLink("GTKWave layout", artifactUrls.gtkw || `${latestRunBase}cpu_trace.gtkw`, summary.gtkw, false)
+      ].filter(Boolean).join("");
+
+      latestRunContent.className = "";
+      latestRunContent.innerHTML = `
+        <h2>Latest RTL Run</h2>
+        <div class="run-status ${escapeHtml(statusKind)}">${escapeHtml(statusLabel)}</div>
+        <p>${escapeHtml(mode)} dashboard. This page summarizes the run directly from <code>summary.json</code> and <code>result.json</code>; raw files are still available below for debugging.</p>
+        <div class="run-grid">
+          ${runMetric("Cycles", tb.cycles)}
+          ${runMetric("Halt", tb.halt)}
+          ${runMetric("Final IC", tb.ic)}
+          ${runMetric("Mode", summary.run_mode || "inspection")}
+          ${validationMetrics}
+        </div>
+        <section class="run-panel">
+          <h3>Run inputs</h3>
+          <div class="run-paths">
+            <div>Program: ${displayValue(summary.program_hex)}</div>
+            <div>Data: ${displayValue(summary.data_hex)}</div>
+            <div>Data source: ${displayValue(summary.data_source, "unspecified")}</div>
+          </div>
+        </section>
+        <section class="run-panel">
+          <h3>Waveform artifacts</h3>
+          <div class="artifact-grid">
+            ${artifactCard("FST", Boolean(summary.fst), "Preferred compact waveform for Surfer or GTKWave.")}
+            ${artifactCard("VCD", Boolean(summary.vcd), "Portable raw waveform trace.")}
+            ${artifactCard("GTKWave layout", Boolean(summary.gtkw), "Curated signal layout for GTKWave.")}
+          </div>
+          <p>Use <strong>Open Waveform</strong> in the PyQt app for the full Surfer/GTKWave view.</p>
+        </section>
+        <section class="run-panel">
+          <h3>Raw artifacts</h3>
+          <p>These are for debugging and export. The readable run summary is already shown above.</p>
+          <details class="raw-artifacts">
+            <summary>Show raw links</summary>
+            <div class="run-links">${rawLinks}</div>
+          </details>
+        </section>
+      `;
+    }
+
+    async function loadLatestRun() {
+      latestRunContent.className = "empty-run";
+      latestRunContent.innerHTML = "<h2>Latest RTL Run</h2><p>Loading latest run...</p>";
+      if (renderInjectedLatestRun()) {
+        return;
+      }
+      try {
+        const response = await fetch(latestRunSummary, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const summary = await response.json();
+        let result = summary.testbench || null;
+        try {
+          const resultResponse = await fetch(`${latestRunBase}result.json`, { cache: "no-store" });
+          if (resultResponse.ok) {
+            result = await resultResponse.json();
+          }
+        } catch (_resultError) {
+          result = summary.testbench || null;
+        }
+        renderLatestRun(summary, result);
+      } catch (_error) {
+        latestRunEmpty();
+      }
+    }
+
+    window.__AMB_RENDER_LATEST_RTL_RUN__ = () => {
+      if (activePage && activePage.type === "latestRun") {
+        renderInjectedLatestRun();
+      }
+    };
+
+    function stateFor(target) {
+      if (!states.has(target)) {
+        states.set(target, { scale: 1, x: 32, y: 72 });
+      }
+      return states.get(target);
+    }
+
+    function applyTransform() {
+      if (!activePage || activePage.type !== "svg") {
+        return;
+      }
+      const state = stateFor(activePage.target);
+      svgImage.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+    }
+
+    function setVisible(mode) {
+      viewer.style.display = mode === "doc" ? "block" : "none";
+      svgExplorer.style.display = mode === "svg" ? "block" : "none";
+      svgToolbar.style.display = mode === "svg" ? "flex" : "none";
+      guide.style.display = mode === "guide" ? "block" : "none";
+      latestRun.style.display = mode === "latestRun" ? "block" : "none";
+      authors.style.display = mode === "authors" ? "block" : "none";
+      missing.style.display = mode === "missing" ? "block" : "none";
+    }
+
+    function fitSvg() {
+      if (!activePage || activePage.type !== "svg" || !svgImage.naturalWidth || !svgImage.naturalHeight) {
+        return;
+      }
+      const pad = 58;
+      const scaleX = Math.max(0.05, (svgExplorer.clientWidth - pad) / svgImage.naturalWidth);
+      const scaleY = Math.max(0.05, (svgExplorer.clientHeight - pad) / svgImage.naturalHeight);
+      const state = stateFor(activePage.target);
+      state.scale = Math.min(scaleX, scaleY, 1.25);
+      state.x = (svgExplorer.clientWidth - svgImage.naturalWidth * state.scale) / 2;
+      state.y = Math.max(86, (svgExplorer.clientHeight - svgImage.naturalHeight * state.scale) / 2);
+      applyTransform();
+    }
+
+    function zoomBy(multiplier, originX = svgExplorer.clientWidth / 2, originY = svgExplorer.clientHeight / 2) {
+      if (!activePage || activePage.type !== "svg") {
+        return;
+      }
+      const state = stateFor(activePage.target);
+      const oldScale = state.scale;
+      const nextScale = Math.min(8, Math.max(0.08, oldScale * multiplier));
+      const worldX = (originX - state.x) / oldScale;
+      const worldY = (originY - state.y) / oldScale;
+      state.scale = nextScale;
+      state.x = originX - worldX * nextScale;
+      state.y = originY - worldY * nextScale;
+      applyTransform();
+    }
+
+    function resetSvg() {
+      if (!activePage || activePage.type !== "svg") {
+        return;
+      }
+      states.set(activePage.target, { scale: 1, x: 32, y: 72 });
+      applyTransform();
+    }
+
+    function slug(value) {
+      return String(value || "")
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase();
+    }
+
+    function pageId(page) {
+      if (page.id) {
+        return slug(page.id);
+      }
+      if (page.target) {
+        return slug(page.target);
+      }
+      return slug(page.label);
+    }
+
+    function routeHash(route) {
+      return `#${pageId(route)}`;
+    }
+
+    function defaultRoute() {
+      return pages.find((page) => page.target === "cpu_v1_core.svg") || pages[0];
+    }
+
+    function routeFromHash() {
+      const hash = slug(window.location.hash.replace(/^#/, ""));
+      return pages.find((item) => pageId(item) === hash) || null;
+    }
+
+    function setBackEnabled() {
+      backButton.disabled = backRoute === null;
+    }
+
+    function setActiveButton(route) {
+      for (const item of nav.querySelectorAll("button")) {
+        item.classList.remove("active");
+      }
+      const activeId = route.parentId ? slug(route.parentId) : pageId(route);
+      const button = pageButtons.get(activeId);
+      if (button) {
+        button.classList.add("active");
+      }
+    }
+
+    function setDocBar(route) {
+      if (!route.dynamic) {
+        docBar.style.display = "none";
+        return;
+      }
+      docTitle.textContent = route.label || "Artifact";
+      docHint.textContent = "Loaded inside CPU Blueprint. Use Back to return.";
+      docBar.style.display = "block";
+    }
+
+    function renderRoute(route) {
+      activePage = route;
+      setActiveButton(route);
+      setDocBar(route);
+
+      if (route.type === "guide") {
+        setVisible("guide");
+        return;
+      }
+
+      if (route.type === "latestRun") {
+        setVisible("latestRun");
+        loadLatestRun();
+        return;
+      }
+
+      if (route.type === "authors") {
+        setVisible("authors");
+        return;
+      }
+
+      if (route.type === "svg") {
+        setVisible("svg");
+        svgImage.onload = () => {
+          if (!states.has(route.target)) {
+            fitSvg();
+          } else {
+            applyTransform();
+          }
+        };
+        svgImage.onerror = () => setVisible("missing");
+        svgImage.src = route.target;
+        applyTransform();
+        return;
+      }
+
+      setVisible("doc");
+      viewer.src = route.target;
+    }
+
+    function navigateTo(route, options = {}) {
+      renderRoute(route);
+      backRoute = null;
+      if (route.dynamic && route.parentId) {
+        backRoute = pages.find((item) => pageId(item) === slug(route.parentId)) || null;
+      }
+      history.replaceState({ blueprintRoute: true, route }, "", routeHash(route));
+      setBackEnabled();
+    }
+
+    function restoreRouteFromState(state) {
+      if (state && state.blueprintRoute && state.route) {
+        navigateTo(state.route);
+        return;
+      }
+      navigateTo(routeFromHash() || defaultRoute());
+    }
+
+    function openBodyDoc(label, target, parentId = "latest-rtl-run") {
+      navigateTo({
+        type: "doc",
+        id: `artifact:${target}`,
+        label,
+        target,
+        parentId,
+        dynamic: true
+      });
+    }
+
+    for (const page of pages) {
+      const button = document.createElement("button");
+      button.textContent = page.label;
+      button.addEventListener("click", () => navigateTo(page));
+      nav.appendChild(button);
+      pageButtons.set(pageId(page), button);
+    }
+
+    backButton.addEventListener("click", () => {
+      if (backRoute) {
+        navigateTo(backRoute);
+      }
+    });
+
+    latestRun.addEventListener("click", (event) => {
+      const link = event.target.closest("a[data-blueprint-doc]");
+      if (!link) {
+        return;
+      }
+      event.preventDefault();
+      openBodyDoc(link.dataset.label || link.textContent.trim(), link.getAttribute("href"));
+    });
+
+    document.getElementById("zoomIn").addEventListener("click", () => zoomBy(1.2));
+    document.getElementById("zoomOut").addEventListener("click", () => zoomBy(1 / 1.2));
+    document.getElementById("zoomReset").addEventListener("click", resetSvg);
+    document.getElementById("zoomFit").addEventListener("click", fitSvg);
+
+    svgExplorer.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = svgExplorer.getBoundingClientRect();
+      zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX - rect.left, event.clientY - rect.top);
+    }, { passive: false });
+
+    svgExplorer.addEventListener("pointerdown", (event) => {
+      if (!activePage || activePage.type !== "svg") {
+        return;
+      }
+      const state = stateFor(activePage.target);
+      dragging = true;
+      dragStart = { x: event.clientX, y: event.clientY, panX: state.x, panY: state.y };
+      svgExplorer.classList.add("dragging");
+      svgExplorer.setPointerCapture(event.pointerId);
+    });
+
+    svgExplorer.addEventListener("pointermove", (event) => {
+      if (!dragging || !activePage) {
+        return;
+      }
+      const state = stateFor(activePage.target);
+      state.x = dragStart.panX + event.clientX - dragStart.x;
+      state.y = dragStart.panY + event.clientY - dragStart.y;
+      applyTransform();
+    });
+
+    svgExplorer.addEventListener("pointerup", () => {
+      dragging = false;
+      svgExplorer.classList.remove("dragging");
+    });
+
+    window.addEventListener("resize", () => {
+      if (activePage && activePage.type === "svg") {
+        applyTransform();
+      }
+    });
+
+    window.addEventListener("popstate", (event) => {
+      restoreRouteFromState(event.state);
+    });
+
+    window.addEventListener("hashchange", () => {
+      const route = routeFromHash();
+      if (route && (!activePage || pageId(activePage) !== pageId(route))) {
+        navigateTo(route);
+      }
+    });
+
+    navigateTo(routeFromHash() || defaultRoute());
+  </script>
+</body>
+</html>

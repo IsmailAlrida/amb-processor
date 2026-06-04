@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import shutil
 import tarfile
@@ -19,6 +20,7 @@ TOOL_ROOT = REPO_ROOT / "tools" / "oss-cad-suite"
 GITHUB_API = "https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/tags"
 REQUIRED_TOOLS = ("yosys", "iverilog", "vvp", "vcd2fst", "dot")
 WAVE_TOOLS = ("surfer", "gtkwave")
+SUPPORTED_PLATFORMS = ("linux-x64", "windows-x64", "darwin-arm64", "darwin-x64")
 
 
 def detect_platform() -> str:
@@ -28,6 +30,10 @@ def detect_platform() -> str:
         return "windows-x64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x64"
+    if system == "darwin" and machine in {"arm64", "aarch64"}:
+        return "darwin-arm64"
+    if system == "darwin" and machine in {"x86_64", "amd64"}:
+        return "darwin-x64"
     raise SystemExit(f"Unsupported platform for pinned OSS CAD Suite install: {system}-{machine}")
 
 
@@ -71,7 +77,12 @@ def copy_existing(source: Path, dest: Path) -> None:
 
 def release_asset(version: str, platform_name: str) -> tuple[str, str]:
     url = f"{GITHUB_API}/{version}"
-    with urllib.request.urlopen(url) as response:
+    request = urllib.request.Request(url)
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("X-GitHub-Api-Version", "2022-11-28")
+    with urllib.request.urlopen(request) as response:
         payload = json.loads(response.read().decode("utf-8"))
     assets = payload.get("assets", [])
     prefix = f"oss-cad-suite-{platform_name}-"
@@ -116,7 +127,7 @@ def write_marker(root: Path, args: argparse.Namespace, tools: dict[str, str]) ->
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default=DEFAULT_VERSION)
-    parser.add_argument("--platform", choices=("auto", "linux-x64", "windows-x64"), default="auto")
+    parser.add_argument("--platform", choices=("auto", *SUPPORTED_PLATFORMS), default="auto")
     parser.add_argument("--from-existing", type=Path, default=None)
     parser.add_argument("--keep-archive", action="store_true")
     args = parser.parse_args()

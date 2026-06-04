@@ -28,6 +28,10 @@ def platform_key() -> str:
         return "windows-x64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x64"
+    if system == "darwin" and machine in {"arm64", "aarch64"}:
+        return "darwin-arm64"
+    if system == "darwin" and machine in {"x86_64", "amd64"}:
+        return "darwin-x64"
     return f"{system}-{machine}"
 
 
@@ -85,7 +89,7 @@ def bundled_oss_root() -> Path:
 
 
 def docs_index_path() -> Path:
-    return resource_path("docs", "index.html")
+    return resource_path("docs", "cpu_components", "index.html")
 
 
 def rtl_run_root() -> Path:
