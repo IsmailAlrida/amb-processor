@@ -1,7 +1,7 @@
 # Editor Assist Gotchas (Autocomplete + Lint)
 
 This document tracks the practical issues we hit while adding editor assist to
-the AMB assembler UI and how each one was fixed.
+the AMB assembler UI and how each one was fixed. Yknow, kinda like a lessons learned sort of thing.
 
 ## 1) Autocomplete signal payload mismatch
 

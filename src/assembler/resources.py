@@ -85,7 +85,7 @@ def bundled_oss_root() -> Path:
 
 
 def docs_index_path() -> Path:
-    return resource_path("docs", "index.html")
+    return resource_path("docs", "cpu_components", "index.html")
 
 
 def rtl_run_root() -> Path:
