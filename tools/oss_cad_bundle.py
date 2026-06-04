@@ -41,6 +41,7 @@ COMMON_FILES = (
     "etc/cacert.pem",
     "etc/fonts/fonts.conf.template",
 )
+WRAPPER_HELPER_TOOLS = ("realpath",)
 ICARUS_HELPER_TOOLS = ("ivl", "ivlpp")
 GTKWAVE_RESOURCE_TREES = (
     "lib/gdk-pixbuf-2.0",
@@ -416,6 +417,8 @@ def collect_oss_cad_suite_bundle(
 
     for tool in options.tools:
         add_tool(entries, source_root, dest_root, tool, options.platform_name)
+    for helper in WRAPPER_HELPER_TOOLS:
+        add_tool(entries, source_root, dest_root, helper, options.platform_name)
 
     add_iverilog_runtime(entries, source_root, dest_root, options.platform_name)
 
