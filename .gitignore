@@ -38,6 +38,11 @@ tools/oss-cad-suite/**
 # Logs
 *.log
 
+# LibreLane / ASIC implementation runs
+src/asic/runs/*/[0-9][0-9]-*/
+src/asic/runs/*/tmp/
+src/asic/runs/*/signoff/
+
 # OS
 .DS_Store
 Thumbs.db
