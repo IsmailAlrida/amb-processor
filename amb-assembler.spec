@@ -18,6 +18,10 @@ def platform_key():
         return "windows-x64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x64"
+    if system == "darwin" and machine in {"arm64", "aarch64"}:
+        return "darwin-arm64"
+    if system == "darwin" and machine in {"x86_64", "amd64"}:
+        return "darwin-x64"
     return f"{system}-{machine}"
 
 
@@ -54,6 +58,8 @@ def resolve_oss_root_for_spec():
 
 
 oss_root = resolve_oss_root_for_spec()
+icon_file = ROOT / "assets" / "amb.ico"
+bundle_icon_file = ROOT / "assets" / "amb.icns"
 
 datas = []
 datas += collect_tree("docs", "docs")
@@ -96,7 +102,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=[str(ROOT / "assets" / "amb.ico")],
+    icon=[str(icon_file)] if icon_file.exists() else None,
 )
 coll = COLLECT(
     exe,
@@ -107,3 +113,11 @@ coll = COLLECT(
     upx_exclude=[],
     name="amb-assembler",
 )
+
+if platform.system() == "Darwin":
+    app = BUNDLE(
+        coll,
+        name="amb-assembler.app",
+        icon=str(bundle_icon_file) if bundle_icon_file.exists() else None,
+        bundle_identifier="ae.uaeu.amb-processor.assembler",
+    )

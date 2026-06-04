@@ -3,12 +3,23 @@
 ; Non-commercial use only
 
 #define MyAppName "AMB Simulator"
-#define MyAppVersion "1.0"
+#ifndef MyAppVersion
+#define EnvAppVersion GetEnv("BUILD_VERSION")
+#if EnvAppVersion != ""
+#define MyAppVersion EnvAppVersion
+#else
+#define MyAppVersion "0.0.0"
+#endif
+#endif
 #define MyAppPublisher "Alrida Ismail"
 #define MyAppURL "https://github.com/IsmailAlrida/amb-processor"
 #define MyAppExeName "amb-assembler.exe"
-#define MyRepoRoot "C:\Users\Alrida Ismail\Documents\GitHub\amb-processor"
-#define MyAppBuildDir "C:\Users\Alrida Ismail\Documents\GitHub\amb-processor\dist\amb-assembler"
+#ifndef MyRepoRoot
+#define MyRepoRoot "."
+#endif
+#ifndef MyAppBuildDir
+#define MyAppBuildDir AddBackslash(MyRepoRoot) + "dist\amb-assembler"
+#endif
 #define MyAppAssocName "AMB Assembly"
 #define MyAppAssocExt ".ambasm"
 #define MyAppAssocKey StringChange(MyAppAssocName, " ", "") + MyAppAssocExt
@@ -36,12 +47,12 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
-LicenseFile={#MyRepoRoot}\LICENSE.txt
+LicenseFile={#AddBackslash(MyRepoRoot)}LICENSE.txt
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
-OutputDir={#MyRepoRoot}\dist\installer out
+OutputDir={#AddBackslash(MyRepoRoot)}dist\installer
 OutputBaseFilename=amb-simulator-setup
-SetupIconFile={#MyRepoRoot}\assets\amb.ico
+SetupIconFile={#AddBackslash(MyRepoRoot)}assets\amb.ico
 ; OSS CAD Suite is large and mostly pre-compressed binaries; non-solid output is less fragile to compile.
 SolidCompression=no
 WizardStyle=modern dark
@@ -68,4 +79,3 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-
