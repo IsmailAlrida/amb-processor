@@ -289,8 +289,8 @@ jobs:
         run: |
           rm -rf "dist/smoke"
           mkdir -p "dist/smoke"
-          ditto "dist/amb-assembler.app" "dist/smoke/amb-assembler 2.app"
-          env -u AMB_OSS_CAD_SUITE_ROOT "dist/smoke/amb-assembler 2.app/Contents/MacOS/amb-assembler" --self-test-rtl
+          ditto "dist/amb-assembler.app" "dist/smoke/amb-assembler-2.app"
+          env -u AMB_OSS_CAD_SUITE_ROOT "dist/smoke/amb-assembler-2.app/Contents/MacOS/amb-assembler" --self-test-rtl
 
       - name: Install Inno Setup
         if: matrix.platform == 'windows-x64'
