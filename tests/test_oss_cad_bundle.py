@@ -95,7 +95,7 @@ class OssCadBundleTests(unittest.TestCase):
             self.assertNotIn("share/gtkwave/gtkwave.tcl", rels)
             self.assertTrue(report_path.exists())
 
-    def test_darwin_mach_o_payloads_are_binaries_but_wrappers_stay_data(self) -> None:
+    def test_darwin_oss_cad_payloads_stay_in_one_data_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "oss-cad-suite"
 
@@ -127,12 +127,13 @@ class OssCadBundleTests(unittest.TestCase):
             self.assertIn("bin/vvp", data_rels)
             self.assertIn("bin/vcd2fst", data_rels)
             self.assertIn("bin/surfer", data_rels)
-            self.assertIn("libexec/iverilog", binary_rels)
-            self.assertIn("libexec/vvp", binary_rels)
-            self.assertIn("libexec/vcd2fst", binary_rels)
-            self.assertIn("libexec/surfer", binary_rels)
-            self.assertIn("libexec/realpath", binary_rels)
-            self.assertIn("lib/ivl/system.vpi", binary_rels)
+            self.assertIn("libexec/iverilog", data_rels)
+            self.assertIn("libexec/vvp", data_rels)
+            self.assertIn("libexec/vcd2fst", data_rels)
+            self.assertIn("libexec/surfer", data_rels)
+            self.assertIn("libexec/realpath", data_rels)
+            self.assertIn("lib/ivl/system.vpi", data_rels)
+            self.assertEqual(set(), binary_rels)
 
 
 if __name__ == "__main__":

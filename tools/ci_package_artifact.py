@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
+import subprocess
 import tarfile
-import zipfile
 from pathlib import Path
 
 
@@ -16,22 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def artifact_base(platform_name: str, version: str) -> str:
     return f"amb-assembler-{platform_name}-{version}"
-
-
-def add_zip_tree(zip_file: zipfile.ZipFile, source: Path, arc_root: str) -> None:
-    for path in source.rglob("*"):
-        arcname = Path(arc_root) / path.relative_to(source)
-        if path.is_symlink():
-            target = os.readlink(path)
-            info = zipfile.ZipInfo(str(arcname))
-            info.create_system = 3
-            info.external_attr = 0o120777 << 16
-            zip_file.writestr(info, target)
-        elif path.is_file():
-            zip_file.write(path, arcname)
-        elif path.is_dir():
-            info = zipfile.ZipInfo(str(arcname) + "/")
-            zip_file.writestr(info, "")
 
 
 def package_linux(version: str, output_dir: Path) -> Path:
@@ -48,9 +31,11 @@ def package_macos(platform_name: str, version: str, output_dir: Path) -> Path:
     source = REPO_ROOT / "dist" / "amb-assembler.app"
     if not source.exists():
         raise SystemExit(f"macOS app bundle not found: {source}")
+    ditto = shutil.which("ditto")
+    if ditto is None:
+        raise SystemExit("ditto not found; macOS app artifacts must be packaged with ditto")
     dest = output_dir / f"{artifact_base(platform_name, version)}.zip"
-    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
-        add_zip_tree(zip_file, source, source.name)
+    subprocess.run([ditto, "-c", "-k", "--sequesterRsrc", "--keepParent", str(source), str(dest)], check=True)
     return dest
 
 

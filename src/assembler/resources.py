@@ -13,7 +13,12 @@ OSS_CAD_SUITE_ENV_VAR = "AMB_OSS_CAD_SUITE_ROOT"
 def app_root() -> Path:
     """Return the root that contains bundled docs, RTL files, and tools."""
     if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS")).resolve()
+        root = Path(getattr(sys, "_MEIPASS")).resolve()
+        if platform.system() == "Darwin":
+            resources_root = root.parent / "Resources"
+            if resources_root.exists():
+                return resources_root.resolve()
+        return root
     return Path(__file__).resolve().parents[2]
 
 

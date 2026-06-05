@@ -26,7 +26,12 @@ module imem #(
 
 `ifndef SYNTHESIS
     //! Loads program.hex or the PROGRAM_HEX plusarg image for simulation.
+    integer init_idx;
+
     initial begin
+        for (init_idx = 0; init_idx < DEPTH; init_idx = init_idx + 1)
+            imemory[init_idx] = 8'h00;
+
         program_hex = "program.hex";
         if ($value$plusargs("PROGRAM_HEX=%s", program_hex)) begin
             $display("imem: loading %0s", program_hex);

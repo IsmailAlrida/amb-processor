@@ -18,12 +18,12 @@ SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from assembler.resources import resolve_oss_root
+from assembler.resources import app_root as resource_app_root, resolve_oss_root
 
 
 def app_root() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS")).resolve()
+        return resource_app_root()
     return Path(__file__).resolve().parents[3]
 
 REPO_ROOT = app_root()
