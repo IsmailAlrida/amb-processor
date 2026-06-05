@@ -731,6 +731,9 @@ class TitleBar(QtWidgets.QWidget):
         self.setFixedHeight(height)
         self._background_color = QtGui.QColor(background_color)
         self._drag_pos: QtCore.QPoint | None = None
+        palette = self.palette()
+        palette.setColor(QtGui.QPalette.ColorRole.Window, self._background_color)
+        self.setPalette(palette)
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 8, 5)
@@ -783,7 +786,11 @@ class TitleBar(QtWidgets.QWidget):
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             handle = self.window().windowHandle()
-            if handle is not None and handle.startSystemMove():
+            if (
+                not sys.platform.startswith("linux")
+                and handle is not None
+                and handle.startSystemMove()
+            ):
                 self._drag_pos = None
                 event.accept()
                 return
@@ -1176,10 +1183,17 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.toolbar_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
         self.toolbar_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.toolbar_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.toolbar_scroll.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.toolbar_scroll.setAutoFillBackground(True)
+        self.toolbar_scroll.viewport().setObjectName("mainToolbarViewport")
+        self.toolbar_scroll.viewport().setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.toolbar_scroll.viewport().setAutoFillBackground(True)
         self.toolbar_scroll.viewport().installEventFilter(self)
 
         strip = QtWidgets.QWidget()
         strip.setObjectName("mainToolbarStrip")
+        strip.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        strip.setAutoFillBackground(True)
         strip.installEventFilter(self)
         layout = QtWidgets.QHBoxLayout(strip)
         layout.setContentsMargins(8, 5, 8, 5)
@@ -1460,7 +1474,7 @@ Comments: // ; #
         self.setStyleSheet(
             """
             QMainWindow { background: #030d04; color: #8dffd1; border: 1px solid #16a865; }
-            QWidget { color: #79ffc4; background: transparent; }
+            QWidget { color: #79ffc4; }
             QWidget#panelBox {
                 background: #031405;
                 border: 2px solid #38f3a5;
@@ -1513,6 +1527,7 @@ Comments: // ; #
                 border: 1px solid #39f5a7;
                 margin: 5px 8px 3px 8px;
             }
+            QWidget#mainToolbarViewport,
             QScrollArea#mainToolbarScroll QWidget#qt_scrollarea_viewport {
                 background: #062311;
             }
@@ -2522,6 +2537,16 @@ Comments: // ; #
         self.setGeometry(x, y, w, h)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if (
+            hasattr(self, "title_bar")
+            and isinstance(obj, QtWidgets.QWidget)
+            and (
+                obj is self.title_bar
+                or self.title_bar.isAncestorOf(obj)
+            )
+        ):
+            return False
+
         if (
             hasattr(self, "toolbar_scroll")
             and isinstance(obj, QtWidgets.QWidget)

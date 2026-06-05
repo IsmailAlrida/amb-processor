@@ -9,6 +9,8 @@ import ctypes
 import html
 import json
 import os
+import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -59,35 +61,86 @@ CPU_CORE_SOURCES = [
     PROCESSOR_DIR / "control_unit.v",
 ]
 
+DARWIN_DIRECT_TOOL_NAMES = {"iverilog", "vvp", "vcd2fst", "surfer"}
+
 
 def default_oss_root() -> Path | None:
     return resolve_oss_root(REPO_ROOT)
 
 
+def is_macos() -> bool:
+    return platform.system() == "Darwin"
+
+
+def _oss_tool_candidates(name: str, oss_root: Path, *, direct_darwin: bool | None = None) -> tuple[Path, ...]:
+    suffix = ".exe" if os.name == "nt" else ""
+    direct_darwin = is_macos() if direct_darwin is None else direct_darwin
+    if direct_darwin:
+        return (
+            oss_root / "libexec" / name,
+            oss_root / "bin" / name,
+        )
+    return (oss_root / "bin" / f"{name}{suffix}",)
+
+
+def _existing_oss_tool(name: str, oss_root: Path, *, direct_darwin: bool | None = None) -> Path | None:
+    for candidate in _oss_tool_candidates(name, oss_root, direct_darwin=direct_darwin):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def tool_path(name: str, oss_root: Path | None) -> str:
     suffix = ".exe" if os.name == "nt" else ""
     if oss_root is not None:
-        candidate = oss_root / "bin" / f"{name}{suffix}"
-        if candidate.exists():
+        candidate = _existing_oss_tool(
+            name,
+            oss_root,
+            direct_darwin=is_macos() and name in DARWIN_DIRECT_TOOL_NAMES,
+        )
+        if candidate is not None:
             return str(candidate)
     return shutil.which(f"{name}{suffix}") or shutil.which(name) or name
 
 
 def tool_environment(oss_root: Path | None) -> dict[str, str] | None:
-    if os.name != "nt" or oss_root is None:
+    if oss_root is None:
         return None
 
     env = dict(os.environ)
     bin_dir = oss_root / "bin"
     lib_dir = oss_root / "lib"
+    libexec_dir = oss_root / "libexec"
 
-    extra_path_parts = [str(path) for path in (bin_dir, lib_dir) if path.exists()]
+    if os.name != "nt" and not is_macos():
+        return None
+
+    path_dirs = (bin_dir, libexec_dir, lib_dir) if is_macos() else (bin_dir, lib_dir)
+    extra_path_parts = [str(path) for path in path_dirs if path.exists()]
     if extra_path_parts:
         current_path = env.get("PATH", "")
         env["PATH"] = os.pathsep.join([*extra_path_parts, current_path]) if current_path else os.pathsep.join(extra_path_parts)
 
     env["YOSYSHQ_ROOT"] = str(oss_root)
     env["SSL_CERT_FILE"] = str(oss_root / "etc" / "cacert.pem")
+    if is_macos():
+        existing_dyld_library_path = env.get("DYLD_LIBRARY_PATH", "")
+        env["DYLD_LIBRARY_PATH"] = (
+            os.pathsep.join([str(lib_dir), existing_dyld_library_path])
+            if existing_dyld_library_path
+            else str(lib_dir)
+        )
+        existing_dyld_fallback = env.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+        env["DYLD_FALLBACK_LIBRARY_PATH"] = (
+            os.pathsep.join([str(lib_dir), existing_dyld_fallback])
+            if existing_dyld_fallback
+            else str(lib_dir)
+        )
+        fonts_dir = oss_root / "etc" / "fonts"
+        if fonts_dir.exists():
+            env["FONTCONFIG_PATH"] = str(fonts_dir)
+        return env
+
     env["PYTHON_EXECUTABLE"] = str(lib_dir / "python3.exe")
     env["QT_PLUGIN_PATH"] = str(lib_dir / "qt5" / "plugins")
     env["QT_LOGGING_RULES"] = "*=false"
@@ -182,10 +235,28 @@ def _path_head(env: dict[str, str] | None, max_parts: int = 4) -> str:
     return os.pathsep.join(raw_path.split(os.pathsep)[:max_parts])
 
 
+def _display_command(cmd: list[str] | str) -> str:
+    if isinstance(cmd, str):
+        return cmd
+    if os.name == "nt":
+        return subprocess.list2cmdline(cmd)
+    return shlex.join(cmd)
+
+
+def _darwin_tool_args(tool: Path, args: list[str], oss_root: Path | None) -> list[str]:
+    if not is_macos() or oss_root is None or tool.name != "iverilog":
+        return args
+
+    vvp = _existing_oss_tool("vvp", oss_root, direct_darwin=True)
+    if vvp is None:
+        return args
+    return ["-p", f"VVP_EXECUTABLE={vvp}", *args]
+
+
 def command_for_tool(tool: str, args: list[str], oss_root: Path | None) -> tuple[list[str] | str, bool]:
     tool_candidate = Path(tool)
     if tool_candidate.exists():
-        return [str(tool_candidate), *args], False
+        return [str(tool_candidate), *_darwin_tool_args(tool_candidate, args, oss_root)], False
     if os.name != "nt" or oss_root is None:
         return [tool, *args], False
     env_bat = oss_root / "environment.bat"
@@ -247,7 +318,7 @@ def run_tool(
             shell=use_shell,
             **_startup_options(suppress_console=True, hide_window=True),
         )
-    printable = cmd if isinstance(cmd, str) else " ".join(cmd)
+    printable = _display_command(cmd)
     with log_file.open("a", encoding="utf-8") as handle:
         handle.write("$ " + printable + "\n")
         handle.write(f"[cwd {actual_cwd}]\n")

@@ -7,6 +7,7 @@ import argparse
 import shutil
 import subprocess
 import tarfile
+import tempfile
 from pathlib import Path
 
 
@@ -33,9 +34,36 @@ def package_macos(platform_name: str, version: str, output_dir: Path) -> Path:
         raise SystemExit(f"macOS app bundle not found: {source}")
     ditto = shutil.which("ditto")
     if ditto is None:
-        raise SystemExit("ditto not found; macOS app artifacts must be packaged with ditto")
-    dest = output_dir / f"{artifact_base(platform_name, version)}.zip"
-    subprocess.run([ditto, "-c", "-k", "--sequesterRsrc", "--keepParent", str(source), str(dest)], check=True)
+        raise SystemExit("ditto not found; macOS app artifacts must be staged with ditto")
+    hdiutil = shutil.which("hdiutil")
+    if hdiutil is None:
+        raise SystemExit("hdiutil not found; macOS app artifacts must be packaged as DMG")
+
+    base_name = artifact_base(platform_name, version)
+    dest = output_dir / f"{base_name}.dmg"
+    dest.unlink(missing_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix=f"{base_name}-", dir=output_dir) as tmpdir:
+        stage_dir = Path(tmpdir) / "dmg-root"
+        stage_dir.mkdir()
+        staged_app = stage_dir / source.name
+        subprocess.run([ditto, str(source), str(staged_app)], check=True)
+        (stage_dir / "Applications").symlink_to("/Applications")
+        subprocess.run(
+            [
+                hdiutil,
+                "create",
+                "-volname",
+                "AMB Assembler",
+                "-srcfolder",
+                str(stage_dir),
+                "-ov",
+                "-format",
+                "UDZO",
+                str(dest),
+            ],
+            check=True,
+        )
     return dest
 
 
