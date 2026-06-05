@@ -605,11 +605,11 @@
         <div class="guide-grid">
           <div class="guide-item"><strong>CPU Blueprint</strong>The PyQt <em>CPU Blueprint</em> button opens this local architecture and run-results app in a WebEngine window.</div>
           <div class="guide-item"><strong>Latest RTL Run</strong>Shows the most recent RTL trace summary. Arbitrary programs are inspection runs; the array-sum sample is the benchmark validation run.</div>
-          <div class="guide-item"><strong>CPU Core</strong>Opens the standalone expanded CPU core diagram from <code>cpu_v1_core.svg</code>.</div>
-          <div class="guide-item"><strong>CPU High Level</strong>Shows the overview block diagram from <code>cpu_high_level.svg</code>.</div>
+          <div class="guide-item"><strong>CPU Core</strong>Opens the standalone expanded CPU core diagram from <code>schems/cpu_v1_core.svg</code>.</div>
+          <div class="guide-item"><strong>CPU High Level</strong>Shows the overview block diagram from <code>schems/cpu_high_level.svg</code>.</div>
           <div class="guide-item"><strong>Module Docs</strong>Generated HTML pages describe the ports and module contracts.</div>
           <div class="guide-item"><strong>Run RTL Sim</strong>In the PyQt app, assembles the current program, runs the Verilog testbench, and writes artifacts under <code>build/rtl_sim/...</code> in dev.</div>
-          <div class="guide-item"><strong>Open Waveform</strong>Opens the latest <code>.fst</code> or <code>.vcd</code> with the selected OSS CAD Suite viewer. Surfer is the default; GTKWave is available from RTL Options.</div>
+          <div class="guide-item"><strong>Open Waveform</strong>Opens the latest <code>.fst</code> or <code>.vcd</code> with Surfer.</div>
           <div class="guide-item"><strong>Sample Code</strong>The sample dropdown loads ready-to-run assembly. The array-sum benchmark also selects the matching benchmark data image for RTL simulation.</div>
           <div class="guide-item"><strong>Authors</strong>Shows the project group information mirrored from the PyQt app.</div>
         </div>
@@ -675,19 +675,19 @@
       { label: "Guide", type: "guide", id: "guide" },
       { label: "Latest RTL Run", type: "latestRun", id: "latest-rtl-run" },
       { label: "Authors", type: "authors", id: "authors" },
-      { label: "CPU Core", type: "svg", target: "cpu_v1_core.svg" },
-      { label: "CPU High Level", type: "svg", target: "cpu_high_level.svg" },
+      { label: "CPU Core", type: "svg", target: "schems/cpu_v1_core.svg" },
+      { label: "CPU High Level", type: "svg", target: "schems/cpu_high_level.svg" },
       { label: "CPU Doc", type: "doc", target: "cpu.html" },
       { label: "ALU", type: "doc", target: "alu.html" },
-      { label: "ALU SVG", type: "svg", target: "alu.svg" },
+      { label: "ALU SVG", type: "svg", target: "schems/alu.svg" },
       { label: "Control", type: "doc", target: "control_unit.html" },
-      { label: "Control SVG", type: "svg", target: "control_unit.svg" },
+      { label: "Control SVG", type: "svg", target: "schems/control.svg" },
       { label: "Reg File", type: "doc", target: "reg_file.html" },
-      { label: "Reg File SVG", type: "svg", target: "reg_file.svg" },
+      { label: "Reg File SVG", type: "svg", target: "schems/regfile.svg" },
       { label: "I Memory", type: "doc", target: "i_memory.html" },
-      { label: "I Memory SVG", type: "svg", target: "imem.svg" },
+      { label: "I Memory SVG", type: "svg", target: "schems/imem.svg" },
       { label: "D Memory", type: "doc", target: "d_memory.html" },
-      { label: "D Memory SVG", type: "svg", target: "dmem.svg" },
+      { label: "D Memory SVG", type: "svg", target: "schems/dmem.svg" },
       { label: "ISA RTL", type: "doc", target: "../ISA_rtl_reference.html" }
     ];
 
@@ -796,8 +796,7 @@
         artifactLink("Summary JSON", artifactUrls.summary_json || `${latestRunBase}summary.json`, true),
         artifactLink("Run log", artifactUrls.run_log || `${latestRunBase}run.log`, summary.log),
         artifactLink("VCD", artifactUrls.vcd || `${latestRunBase}cpu_tb.vcd`, summary.vcd, false),
-        artifactLink("FST", artifactUrls.fst || `${latestRunBase}cpu_tb.fst`, summary.fst, false),
-        artifactLink("GTKWave layout", artifactUrls.gtkw || `${latestRunBase}cpu_trace.gtkw`, summary.gtkw, false)
+        artifactLink("FST", artifactUrls.fst || `${latestRunBase}cpu_tb.fst`, summary.fst, false)
       ].filter(Boolean).join("");
 
       latestRunContent.className = "";
@@ -823,11 +822,10 @@
         <section class="run-panel">
           <h3>Waveform artifacts</h3>
           <div class="artifact-grid">
-            ${artifactCard("FST", Boolean(summary.fst), "Preferred compact waveform for Surfer or GTKWave.")}
+            ${artifactCard("FST", Boolean(summary.fst), "Preferred compact waveform for Surfer.")}
             ${artifactCard("VCD", Boolean(summary.vcd), "Portable raw waveform trace.")}
-            ${artifactCard("GTKWave layout", Boolean(summary.gtkw), "Curated signal layout for GTKWave.")}
           </div>
-          <p>Use <strong>Open Waveform</strong> in the PyQt app for the full Surfer/GTKWave view.</p>
+          <p>Use <strong>Open Waveform</strong> in the PyQt app for the full Surfer view.</p>
         </section>
         <section class="run-panel">
           <h3>Raw artifacts</h3>
@@ -957,7 +955,7 @@
     }
 
     function defaultRoute() {
-      return pages.find((page) => page.target === "cpu_v1_core.svg") || pages[0];
+      return pages.find((page) => page.target === "schems/cpu_v1_core.svg") || pages[0];
     }
 
     function routeFromHash() {

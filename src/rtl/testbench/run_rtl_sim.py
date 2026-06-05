@@ -13,12 +13,18 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, TypedDict
 
 SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from assembler.resources import app_root as resource_app_root, resolve_oss_root
+
+
+class StartupOptions(TypedDict, total=False):
+    startupinfo: Any
+    creationflags: int
 
 
 def app_root() -> Path:
@@ -51,31 +57,6 @@ CPU_CORE_SOURCES = [
     PROCESSOR_DIR / "reg_file.v",
     PROCESSOR_DIR / "alu.v",
     PROCESSOR_DIR / "control_unit.v",
-]
-
-GTKW_SIGNALS = [
-    "cpu_tb.clk",
-    "cpu_tb.reset",
-    "cpu_tb.halt",
-    "cpu_tb.IC[27:0]",
-    "cpu_tb.instr[15:0]",
-    "cpu_tb.cpu_inst.opcode[6:0]",
-    "cpu_tb.cpu_inst.RegWrite",
-    "cpu_tb.cpu_inst.RegDest[1:0]",
-    "cpu_tb.DmemReadEn",
-    "cpu_tb.DmemWriteEn",
-    "cpu_tb.DataAddress[27:0]",
-    "cpu_tb.DataMemoryRead[27:0]",
-    "cpu_tb.DataMemoryWrite[27:0]",
-    "cpu_tb.cpu_inst.OperandA[27:0]",
-    "cpu_tb.cpu_inst.OperandB[27:0]",
-    "cpu_tb.cpu_inst.ALURes[27:0]",
-    "cpu_tb.cpu_inst.zerof",
-    "cpu_tb.cpu_inst.altb",
-    "cpu_tb.cpu_inst.WillBranch",
-    "cpu_tb.live_result[27:0]",
-    "cpu_tb.actual[27:0]",
-    "cpu_tb.actual_valid",
 ]
 
 
@@ -165,11 +146,11 @@ def clean_child_dll_search():
         _set_windows_dll_directory(previous)
 
 
-def _startup_options(*, suppress_console: bool, hide_window: bool = False) -> dict[str, object]:
+def _startup_options(*, suppress_console: bool, hide_window: bool = False) -> StartupOptions:
     if os.name != "nt":
         return {}
 
-    options: dict[str, object] = {}
+    options: StartupOptions = {}
     if hide_window:
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -337,23 +318,6 @@ def classify_run(
     return run_mode, "warn", "Trace stopped"
 
 
-def write_gtkw_save(out_dir: Path, wave_path: Path) -> Path:
-    gtkw_path = out_dir / "cpu_trace.gtkw"
-    lines = [
-        f'[dumpfile] "{wave_path.name}"',
-        '[timestart] 0',
-        '[size] 1400 820',
-        '[signals_width] 280',
-        '[sst_width] 320',
-        '@28',
-        '* Core trace',
-        *GTKW_SIGNALS,
-        '',
-    ]
-    gtkw_path.write_text("\n".join(lines), encoding="utf-8")
-    return gtkw_path
-
-
 def write_surfer_config(out_dir: Path) -> Path:
     config_path = out_dir / ".surfer" / "config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -419,7 +383,6 @@ def write_html_index(out_dir: Path, result: dict[str, object], report_path: Path
         ("Run log", "run.log", result.get("log")),
         ("VCD", "cpu_tb.vcd", result.get("vcd")),
         ("FST", "cpu_tb.fst", result.get("fst")),
-        ("GTKWave layout", "cpu_trace.gtkw", result.get("gtkw")),
         ("Schematic SVG", "cpu_schematic.svg", result.get("schematic_svg")),
     ]
     artifact_html = "\n".join(
@@ -487,7 +450,7 @@ def write_html_index(out_dir: Path, result: dict[str, object], report_path: Path
     <section class="panel">
       <h2>Artifacts</h2>
       <div class="links">{artifact_html}</div>
-      <p>Use <strong>Open Waveform</strong> in the app for the full GTKWave/Surfer view. This report keeps the run readable and links the raw files.</p>
+      <p>Use <strong>Open Waveform</strong> in the app for the full Surfer view. This report keeps the run readable and links the raw files.</p>
     </section>
     {schematic_block}
     <section class="panel">
@@ -548,7 +511,6 @@ def run_simulation(
         report_path,
         out_dir / "summary.json",
         out_dir / "index.html",
-        out_dir / "cpu_trace.gtkw",
         out_dir / "cpu_trace.sucl",
         out_dir / ".surfer" / "config.toml",
         out_dir / "cpu_schematic.dot",
@@ -617,13 +579,21 @@ def run_simulation(
     maybe_generate_schematic(oss_root, out_dir, log_file, schematic)
 
     wave_path = fst_path if fst_path.exists() else vcd_path
-    gtkw_path = write_gtkw_save(out_dir, wave_path) if wave_path.exists() else None
     report_data = read_json_file(report_path)
     run_mode, status_kind, status_label = classify_run(
         returncode=proc.returncode,
         check_result=check_result,
         report_data=report_data,
     )
+    artifacts: dict[str, object] = {
+        "html": str(out_dir / "index.html"),
+        "result_json": str(report_path) if report_path.exists() else None,
+        "summary_json": str(out_dir / "summary.json"),
+        "run_log": str(log_file),
+        "vcd": str(vcd_path) if vcd_path.exists() else None,
+        "fst": str(fst_path) if fst_path.exists() else None,
+        "schematic_svg": str(out_dir / "cpu_schematic.svg") if (out_dir / "cpu_schematic.svg").exists() else None,
+    }
     result = {
         "run_name": run_name,
         "returncode": proc.returncode,
@@ -635,7 +605,6 @@ def run_simulation(
         "data_source": data_source or ("Benchmark data image" if check_result == "1" else "Data image"),
         "vcd": str(vcd_path) if vcd_path.exists() else None,
         "fst": str(fst_path) if fst_path.exists() else None,
-        "gtkw": str(gtkw_path) if gtkw_path is not None and gtkw_path.exists() else None,
         "report": str(report_path) if report_path.exists() else None,
         "log": str(log_file),
         "schematic_svg": str(out_dir / "cpu_schematic.svg") if (out_dir / "cpu_schematic.svg").exists() else None,
@@ -643,30 +612,17 @@ def run_simulation(
         "oss_root": str(oss_root) if oss_root else None,
         "waveform_conversion": waveform_conversion,
         "testbench": report_data,
-        "artifacts": {},
-    }
-    result["artifacts"] = {
-        "html": str(out_dir / "index.html"),
-        "result_json": result["report"],
-        "summary_json": str(out_dir / "summary.json"),
-        "run_log": result["log"],
-        "vcd": result["vcd"],
-        "fst": result["fst"],
-        "gtkw": result["gtkw"],
-        "schematic_svg": result["schematic_svg"],
+        "artifacts": artifacts,
     }
     html_path = write_html_index(out_dir, result, report_path)
     result["html"] = str(html_path)
-    result["artifacts"]["html"] = str(html_path)  # type: ignore[index]
+    artifacts["html"] = str(html_path)
 
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
     if wave_viewer is not None and wave_path.exists():
-        if Path(wave_viewer).name.lower().startswith("gtkwave") and gtkw_path is not None:
-            popen_tool(wave_viewer, ["-a", str(gtkw_path), str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
-        else:
-            popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
+        popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
 
     return result
 
@@ -684,7 +640,7 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--oss-root", type=Path, default=None)
     parser.add_argument("--oss-bin", type=Path, default=None, help="Deprecated; use --oss-root.")
-    parser.add_argument("--open-wave", choices=("none", "surfer", "gtkwave"), default="none")
+    parser.add_argument("--open-wave", choices=("none", "surfer"), default="none")
     parser.add_argument("--schematic", action="store_true")
     args = parser.parse_args()
 
@@ -707,7 +663,8 @@ def main() -> int:
         data_source=args.data_source,
     )
     print(json.dumps(result, indent=2))
-    return int(result["returncode"])
+    returncode = result.get("returncode", 1)
+    return returncode if isinstance(returncode, int) else 1
 
 
 if __name__ == "__main__":
