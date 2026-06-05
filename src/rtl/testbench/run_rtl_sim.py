@@ -367,6 +367,15 @@ def truthy(value: object) -> bool:
     return value is True or value == 1 or value == "1" or value == "true"
 
 
+def stage_hex_input(source: Path, destination: Path) -> Path:
+    source = source.expanduser().resolve()
+    destination = destination.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source != destination:
+        shutil.copy2(source, destination)
+    return destination
+
+
 def classify_run(
     *,
     returncode: int,
@@ -574,6 +583,8 @@ def run_simulation(
     vcd_path = out_dir / "cpu_tb.vcd"
     fst_path = out_dir / "cpu_tb.fst"
     report_path = out_dir / "result.json"
+    staged_program = stage_hex_input(program, out_dir / "program.hex")
+    staged_data = stage_hex_input(data, out_dir / "data.hex")
     waveform_conversion: dict[str, object] | None = None
     for stale_path in (
         sim_path,
@@ -609,8 +620,8 @@ def run_simulation(
             vvp,
             [
                 str(sim_path),
-                f"+PROGRAM_HEX={program}",
-                f"+DATA_HEX={data}",
+                f"+PROGRAM_HEX={staged_program}",
+                f"+DATA_HEX={staged_data}",
                 f"+RESULT_ADDR={result_addr}",
                 f"+EXPECTED={expected}",
                 f"+CHECK_RESULT={check_result}",

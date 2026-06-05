@@ -150,6 +150,88 @@ class RtlSurferConfigTests(unittest.TestCase):
             self.assertFalse(popen.call_args.kwargs["shell"])
             self.assertEqual(str(oss_root), popen.call_args.kwargs["env"]["YOSYSHQ_ROOT"])
 
+    def test_stage_hex_input_copies_long_source_to_short_run_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = (
+                root
+                / "private"
+                / "var"
+                / "folders"
+                / "AppTranslocation"
+                / "AMB Assembler.app"
+                / "Contents"
+                / "Resources"
+                / "src"
+                / "rtl"
+                / "testbench"
+                / "array_sum_data.hex"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text("@0200\n19\n00\n00\n00\n", encoding="utf-8")
+            staged = root / "run" / "data.hex"
+
+            result = run_rtl_sim.stage_hex_input(source, staged)
+
+            self.assertEqual(staged.resolve(), result)
+            self.assertEqual(source.read_text(encoding="utf-8"), staged.read_text(encoding="utf-8"))
+
+    def test_stage_hex_input_skips_copy_when_source_is_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            staged = Path(tmpdir) / "run" / "program.hex"
+            staged.parent.mkdir(parents=True)
+            staged.write_text("1a\n05\n", encoding="utf-8")
+
+            with patch.object(run_rtl_sim.shutil, "copy2") as copy2:
+                result = run_rtl_sim.stage_hex_input(staged, staged)
+
+            self.assertEqual(staged.resolve(), result)
+            copy2.assert_not_called()
+
+    def test_run_simulation_passes_staged_hex_paths_to_vvp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            program = root / "program source" / "program.hex"
+            data = (
+                root
+                / "private"
+                / "var"
+                / "folders"
+                / "AppTranslocation"
+                / "AMB Assembler.app"
+                / "Contents"
+                / "Resources"
+                / "src"
+                / "rtl"
+                / "testbench"
+                / "array_sum_data.hex"
+            )
+            out_dir = root / "run"
+            program.parent.mkdir(parents=True)
+            data.parent.mkdir(parents=True)
+            program.write_text("1a\n05\n", encoding="utf-8")
+            data.write_text("@0200\n19\n00\n00\n00\n", encoding="utf-8")
+
+            completed = run_rtl_sim.subprocess.CompletedProcess([], 0, "")
+
+            with patch.object(run_rtl_sim, "run_tool", return_value=completed) as run_tool:
+                run_rtl_sim.run_simulation(
+                    run_name="test",
+                    program=program,
+                    data=data,
+                    out_dir=out_dir,
+                    oss_root=None,
+                    check_result="0",
+                )
+
+            self.assertEqual(program.read_text(encoding="utf-8"), (out_dir / "program.hex").read_text(encoding="utf-8"))
+            self.assertEqual(data.read_text(encoding="utf-8"), (out_dir / "data.hex").read_text(encoding="utf-8"))
+
+            vvp_args = run_tool.call_args_list[1].args[1]
+            self.assertIn(f"+PROGRAM_HEX={(out_dir / 'program.hex').resolve()}", vvp_args)
+            self.assertIn(f"+DATA_HEX={(out_dir / 'data.hex').resolve()}", vvp_args)
+            self.assertNotIn(f"+DATA_HEX={data.resolve()}", vvp_args)
+
 
 if __name__ == "__main__":
     unittest.main()
