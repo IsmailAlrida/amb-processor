@@ -50,7 +50,7 @@ def collect_tree(src, dest, excluded_file_suffixes=None):
 
 
 def resolve_oss_source_root_for_spec():
-    env_root = os.environ.get("AMB_OSS_CAD_SUITE_ROOT")
+    env_root = os.environ.get("AMB_OSS_CAD_SUITE_SOURCE_ROOT")
     candidates = [
         Path("tools") / "oss-cad-suite" / platform_key() / "oss-cad-suite",
         Path("tools") / "oss-cad-suite" / "oss-cad-suite",

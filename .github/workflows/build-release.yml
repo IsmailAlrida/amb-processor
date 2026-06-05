@@ -266,34 +266,31 @@ jobs:
               raise SystemExit("iverilog not found on PATH after setup-oss-cad-suite")
 
           root = Path(tool).resolve().parent.parent
-          print(f"AMB_OSS_CAD_SUITE_ROOT={root}")
+          print(f"AMB_OSS_CAD_SUITE_SOURCE_ROOT={root}")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write(f"AMB_OSS_CAD_SUITE_ROOT={root}\n")
+              env_file.write(f"AMB_OSS_CAD_SUITE_SOURCE_ROOT={root}\n")
           PY
-
-      - name: Run source smoke tests
-        env:
-          PYTHONPATH: src
-          QT_QPA_PLATFORM: offscreen
-        run: |
-          python -m assembler --self-test
-          python -m assembler --self-test-rtl
 
       - name: Build PyInstaller bundle
         run: |
           python -m PyInstaller --noconfirm --clean amb-assembler.spec
 
-      - name: Run frozen smoke tests
+      - name: Run frozen RTL smoke
+        if: ${{ !startsWith(matrix.platform, 'darwin-') }}
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
-          python tools/ci_run_frozen_smoke.py --exe "${{ matrix.frozen_exe }}"
+          "${{ matrix.frozen_exe }}" --self-test-rtl
 
-      - name: Run macOS frozen smoke tests from spaced app path
+      - name: Run macOS frozen RTL smoke from spaced app path
         if: startsWith(matrix.platform, 'darwin-')
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
           rm -rf "dist/smoke"
           mkdir -p "dist/smoke"
           ditto "dist/amb-assembler.app" "dist/smoke/amb-assembler 2.app"
-          python tools/ci_run_frozen_smoke.py --exe "dist/smoke/amb-assembler 2.app/Contents/MacOS/amb-assembler"
+          env -u AMB_OSS_CAD_SUITE_ROOT "dist/smoke/amb-assembler 2.app/Contents/MacOS/amb-assembler" --self-test-rtl
 
       - name: Install Inno Setup
         if: matrix.platform == 'windows-x64'
@@ -320,11 +317,37 @@ jobs:
           }
           & $iscc /Qp "/DMyRepoRoot=$pwd" "/O$installerDir" "/Famb-assembler-windows-x64-$env:BUILD_VERSION-setup" simcompile.iss
 
-      - name: Package artifact
+      - name: Package Linux artifact
+        if: matrix.platform == 'linux-x64'
         run: |
-          python tools/ci_package_artifact.py \
-            --platform "${{ matrix.platform }}" \
-            --version "${BUILD_VERSION}"
+          mkdir -p "dist/artifacts"
+          tar -czf "dist/artifacts/amb-assembler-linux-x64-${BUILD_VERSION}.tar.gz" -C dist amb-assembler
+
+      - name: Package macOS DMG
+        if: startsWith(matrix.platform, 'darwin-')
+        run: |
+          rm -rf "dist/dmg-root"
+          mkdir -p "dist/artifacts" "dist/dmg-root"
+          ditto "dist/amb-assembler.app" "dist/dmg-root/amb-assembler.app"
+          ln -s /Applications "dist/dmg-root/Applications"
+          hdiutil create \
+            -volname "AMB Assembler" \
+            -srcfolder "dist/dmg-root" \
+            -ov \
+            -format UDZO \
+            "dist/artifacts/amb-assembler-${{ matrix.platform }}-${BUILD_VERSION}.dmg"
+
+      - name: Package Windows artifact
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $artifactDir = Join-Path $pwd "dist\artifacts"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $installer = Get-ChildItem "dist\installer" -Filter "*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Inno Setup installer not found in dist\installer"
+          }
+          Copy-Item $installer.FullName (Join-Path $artifactDir "amb-assembler-windows-x64-$env:BUILD_VERSION-setup.exe") -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

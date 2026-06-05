@@ -66,10 +66,13 @@ def oss_root_candidates(base_root: Path | None = None, platform_name: str | None
     base_root = base_root or app_root()
     candidates: list[Path] = []
     env_root = _env_oss_root(base_root)
-    if env_root is not None:
-        candidates.append(env_root)
+    frozen_macos = getattr(sys, "frozen", False) and platform.system() == "Darwin"
     candidates.append(canonical_oss_root(base_root, platform_name))
     candidates.append(compatibility_oss_root(base_root))
+    if env_root is not None and not frozen_macos:
+        candidates.insert(0, env_root)
+    elif env_root is not None:
+        candidates.append(env_root)
 
     deduped: list[Path] = []
     seen: set[str] = set()
