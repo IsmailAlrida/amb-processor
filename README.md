@@ -1,33 +1,35 @@
-<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 320px); column-gap: 48px; row-gap: 24px; align-items: center;">
-  <div>
-    <h1>AMB Processor</h1>
-    <p><strong>A custom single-cycle CPU implemented in Verilog and compiled with LibreLane.</strong></p>
-    <p>
-      The AMB processor was designed and written in fulfillment of a UAEU group course project, in particular, for the
-      <strong>Computer Architecture &amp; Organization: ELEC 462</strong> course, in fulfillment of our Bachelor of Science Degree
-      in Electrical Engineering, under the teaching of
-      <a href="https://www.linkedin.com/in/abdul-halim-jallad-72116141/">Dr. Abdulhalim Jallad</a>.
-    </p>
+<div align="center" style="background: #020b02; color: #d6ffed; border: 1px solid #00c878; border-radius: 12px; padding: 24px;">
 
-  </div>
-  <div style="align-items: center;">
-    <img src="assets/amb.png" alt="AMB Processor logo" width="320" style="border-radius:12px">
-  </div>
+<img src="assets/amb.png" alt="AMB Processor logo" width="120" style="border-radius: 12px; margin-bottom: 16px;">
+
+<h1 style="color: #d6ffed;">The AMB Processor</h1>
+
+<p style="color: #d6ffed;"><strong>A custom single-cycle CPU implemented in Verilog and compiled with LibreLane.</strong></p>
+
+<p>
+  <img src="https://img.shields.io/badge/word_size-28--bit-031305?style=flat-square&labelColor=020b02&color=007a3a">
+  <img src="https://img.shields.io/badge/ISA-16--bit-031305?style=flat-square&labelColor=020b02&color=007a3a">
+  <img src="https://img.shields.io/badge/PDK-Skywater130-031305?style=flat-square&labelColor=020b02&color=007a3a">
+  <img src="https://img.shields.io/badge/tool-LibreLane-031305?style=flat-square&labelColor=020b02&color=007a3a">
+  <img src="https://img.shields.io/badge/simulator-PyQt6-031305?style=flat-square&labelColor=020b02&color=007a3a">
+  <img src="https://img.shields.io/badge/course-ELEC_462_·_UAEU-031305?style=flat-square&labelColor=020b02&color=007a3a">
+</p>
+
+<p>
+  <a href="docs/ISA_rtl_reference.md" style="color: #4dff8a;"><strong>ISA Reference</strong></a> ·
+  <a href="docs/cpu_components/index.html" style="color: #4dff8a;"><strong>CPU Component Docs</strong></a> ·
+  <a href="src/asic/config.yaml" style="color: #4dff8a;"><strong>LibreLane Config</strong></a>
+</p>
+
 </div>
 
-<div align="center" style="margin-top: 28px;">
-  <p>
-    <a href="docs/ISA_rtl_reference.md">ISA Reference</a> ·
-    <a href="docs/cpu_components/index.html">CPU Component Docs</a> ·
-    <a href="src/asic/config.yaml">LibreLane Config</a>
-  </p>
-</div>
+---
 
-## Project Summary
+The AMB processor was designed and written in fulfillment of a UAEU group course project, in particular, for the **Computer Architecture & Organization: ELEC 462** course, in fulfillment of our Bachelor of Science Degree in Electrical Engineering, under the teaching of [Dr. Abdulhalim Jallad](https://www.linkedin.com/in/abdul-halim-jallad-72116141/).
 
 We were tasked with architecting and designing a 28-bit word CPU, with 16-bit instructions with an unused MSB, byte-addressable memory, and our own custom instruction set architecture.
 
-And that is exactly what the repository is. Here, you will find our Verilog implementation of the CPU, a simulator written with PyQt6, as well as the GDS file generated with LibreLane for an ASIC implementation of the processor.
+Here you will find our Verilog implementation of the CPU, a simulator written with PyQt6, as well as the GDS file generated with LibreLane for an ASIC implementation of the processor.
 
 ## Using The AMB Simulator
 
