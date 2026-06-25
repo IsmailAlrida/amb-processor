@@ -9,21 +9,29 @@ import ctypes
 import html
 import json
 import os
+import platform
+import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, TypedDict
 
 SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from assembler.resources import resolve_oss_root
+from assembler.resources import app_root as resource_app_root, resolve_oss_root
+
+
+class StartupOptions(TypedDict, total=False):
+    startupinfo: Any
+    creationflags: int
 
 
 def app_root() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS")).resolve()
+        return resource_app_root()
     return Path(__file__).resolve().parents[3]
 
 REPO_ROOT = app_root()
@@ -53,60 +61,86 @@ CPU_CORE_SOURCES = [
     PROCESSOR_DIR / "control_unit.v",
 ]
 
-GTKW_SIGNALS = [
-    "cpu_tb.clk",
-    "cpu_tb.reset",
-    "cpu_tb.halt",
-    "cpu_tb.IC[27:0]",
-    "cpu_tb.instr[15:0]",
-    "cpu_tb.cpu_inst.opcode[6:0]",
-    "cpu_tb.cpu_inst.RegWrite",
-    "cpu_tb.cpu_inst.RegDest[1:0]",
-    "cpu_tb.DmemReadEn",
-    "cpu_tb.DmemWriteEn",
-    "cpu_tb.DataAddress[27:0]",
-    "cpu_tb.DataMemoryRead[27:0]",
-    "cpu_tb.DataMemoryWrite[27:0]",
-    "cpu_tb.cpu_inst.OperandA[27:0]",
-    "cpu_tb.cpu_inst.OperandB[27:0]",
-    "cpu_tb.cpu_inst.ALURes[27:0]",
-    "cpu_tb.cpu_inst.zerof",
-    "cpu_tb.cpu_inst.altb",
-    "cpu_tb.cpu_inst.WillBranch",
-    "cpu_tb.live_result[27:0]",
-    "cpu_tb.actual[27:0]",
-    "cpu_tb.actual_valid",
-]
+DARWIN_DIRECT_TOOL_NAMES = {"iverilog", "vvp", "vcd2fst", "surfer"}
 
 
 def default_oss_root() -> Path | None:
     return resolve_oss_root(REPO_ROOT)
 
 
+def is_macos() -> bool:
+    return platform.system() == "Darwin"
+
+
+def _oss_tool_candidates(name: str, oss_root: Path, *, direct_darwin: bool | None = None) -> tuple[Path, ...]:
+    suffix = ".exe" if os.name == "nt" else ""
+    direct_darwin = is_macos() if direct_darwin is None else direct_darwin
+    if direct_darwin:
+        return (
+            oss_root / "libexec" / name,
+            oss_root / "bin" / name,
+        )
+    return (oss_root / "bin" / f"{name}{suffix}",)
+
+
+def _existing_oss_tool(name: str, oss_root: Path, *, direct_darwin: bool | None = None) -> Path | None:
+    for candidate in _oss_tool_candidates(name, oss_root, direct_darwin=direct_darwin):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def tool_path(name: str, oss_root: Path | None) -> str:
     suffix = ".exe" if os.name == "nt" else ""
     if oss_root is not None:
-        candidate = oss_root / "bin" / f"{name}{suffix}"
-        if candidate.exists():
+        candidate = _existing_oss_tool(
+            name,
+            oss_root,
+            direct_darwin=is_macos() and name in DARWIN_DIRECT_TOOL_NAMES,
+        )
+        if candidate is not None:
             return str(candidate)
     return shutil.which(f"{name}{suffix}") or shutil.which(name) or name
 
 
 def tool_environment(oss_root: Path | None) -> dict[str, str] | None:
-    if os.name != "nt" or oss_root is None:
+    if oss_root is None:
         return None
 
     env = dict(os.environ)
     bin_dir = oss_root / "bin"
     lib_dir = oss_root / "lib"
+    libexec_dir = oss_root / "libexec"
 
-    extra_path_parts = [str(path) for path in (bin_dir, lib_dir) if path.exists()]
+    if os.name != "nt" and not is_macos():
+        return None
+
+    path_dirs = (bin_dir, libexec_dir, lib_dir) if is_macos() else (bin_dir, lib_dir)
+    extra_path_parts = [str(path) for path in path_dirs if path.exists()]
     if extra_path_parts:
         current_path = env.get("PATH", "")
         env["PATH"] = os.pathsep.join([*extra_path_parts, current_path]) if current_path else os.pathsep.join(extra_path_parts)
 
     env["YOSYSHQ_ROOT"] = str(oss_root)
     env["SSL_CERT_FILE"] = str(oss_root / "etc" / "cacert.pem")
+    if is_macos():
+        existing_dyld_library_path = env.get("DYLD_LIBRARY_PATH", "")
+        env["DYLD_LIBRARY_PATH"] = (
+            os.pathsep.join([str(lib_dir), existing_dyld_library_path])
+            if existing_dyld_library_path
+            else str(lib_dir)
+        )
+        existing_dyld_fallback = env.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+        env["DYLD_FALLBACK_LIBRARY_PATH"] = (
+            os.pathsep.join([str(lib_dir), existing_dyld_fallback])
+            if existing_dyld_fallback
+            else str(lib_dir)
+        )
+        fonts_dir = oss_root / "etc" / "fonts"
+        if fonts_dir.exists():
+            env["FONTCONFIG_PATH"] = str(fonts_dir)
+        return env
+
     env["PYTHON_EXECUTABLE"] = str(lib_dir / "python3.exe")
     env["QT_PLUGIN_PATH"] = str(lib_dir / "qt5" / "plugins")
     env["QT_LOGGING_RULES"] = "*=false"
@@ -165,11 +199,11 @@ def clean_child_dll_search():
         _set_windows_dll_directory(previous)
 
 
-def _startup_options(*, suppress_console: bool, hide_window: bool = False) -> dict[str, object]:
+def _startup_options(*, suppress_console: bool, hide_window: bool = False) -> StartupOptions:
     if os.name != "nt":
         return {}
 
-    options: dict[str, object] = {}
+    options: StartupOptions = {}
     if hide_window:
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -201,10 +235,28 @@ def _path_head(env: dict[str, str] | None, max_parts: int = 4) -> str:
     return os.pathsep.join(raw_path.split(os.pathsep)[:max_parts])
 
 
+def _display_command(cmd: list[str] | str) -> str:
+    if isinstance(cmd, str):
+        return cmd
+    if os.name == "nt":
+        return subprocess.list2cmdline(cmd)
+    return shlex.join(cmd)
+
+
+def _darwin_tool_args(tool: Path, args: list[str], oss_root: Path | None) -> list[str]:
+    if not is_macos() or oss_root is None or tool.name != "iverilog":
+        return args
+
+    vvp = _existing_oss_tool("vvp", oss_root, direct_darwin=True)
+    if vvp is None:
+        return args
+    return ["-p", f"VVP_EXECUTABLE={vvp}", *args]
+
+
 def command_for_tool(tool: str, args: list[str], oss_root: Path | None) -> tuple[list[str] | str, bool]:
     tool_candidate = Path(tool)
     if tool_candidate.exists():
-        return [str(tool_candidate), *args], False
+        return [str(tool_candidate), *_darwin_tool_args(tool_candidate, args, oss_root)], False
     if os.name != "nt" or oss_root is None:
         return [tool, *args], False
     env_bat = oss_root / "environment.bat"
@@ -266,7 +318,7 @@ def run_tool(
             shell=use_shell,
             **_startup_options(suppress_console=True, hide_window=True),
         )
-    printable = cmd if isinstance(cmd, str) else " ".join(cmd)
+    printable = _display_command(cmd)
     with log_file.open("a", encoding="utf-8") as handle:
         handle.write("$ " + printable + "\n")
         handle.write(f"[cwd {actual_cwd}]\n")
@@ -315,6 +367,15 @@ def truthy(value: object) -> bool:
     return value is True or value == 1 or value == "1" or value == "true"
 
 
+def stage_hex_input(source: Path, destination: Path) -> Path:
+    source = source.expanduser().resolve()
+    destination = destination.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source != destination:
+        shutil.copy2(source, destination)
+    return destination
+
+
 def classify_run(
     *,
     returncode: int,
@@ -335,23 +396,6 @@ def classify_run(
     if truthy(report_data.get("halt")):
         return run_mode, "ok", "Trace complete"
     return run_mode, "warn", "Trace stopped"
-
-
-def write_gtkw_save(out_dir: Path, wave_path: Path) -> Path:
-    gtkw_path = out_dir / "cpu_trace.gtkw"
-    lines = [
-        f'[dumpfile] "{wave_path.name}"',
-        '[timestart] 0',
-        '[size] 1400 820',
-        '[signals_width] 280',
-        '[sst_width] 320',
-        '@28',
-        '* Core trace',
-        *GTKW_SIGNALS,
-        '',
-    ]
-    gtkw_path.write_text("\n".join(lines), encoding="utf-8")
-    return gtkw_path
 
 
 def write_surfer_config(out_dir: Path) -> Path:
@@ -419,7 +463,6 @@ def write_html_index(out_dir: Path, result: dict[str, object], report_path: Path
         ("Run log", "run.log", result.get("log")),
         ("VCD", "cpu_tb.vcd", result.get("vcd")),
         ("FST", "cpu_tb.fst", result.get("fst")),
-        ("GTKWave layout", "cpu_trace.gtkw", result.get("gtkw")),
         ("Schematic SVG", "cpu_schematic.svg", result.get("schematic_svg")),
     ]
     artifact_html = "\n".join(
@@ -487,7 +530,7 @@ def write_html_index(out_dir: Path, result: dict[str, object], report_path: Path
     <section class="panel">
       <h2>Artifacts</h2>
       <div class="links">{artifact_html}</div>
-      <p>Use <strong>Open Waveform</strong> in the app for the full GTKWave/Surfer view. This report keeps the run readable and links the raw files.</p>
+      <p>Use <strong>Open Waveform</strong> in the app for the full Surfer view. This report keeps the run readable and links the raw files.</p>
     </section>
     {schematic_block}
     <section class="panel">
@@ -540,6 +583,8 @@ def run_simulation(
     vcd_path = out_dir / "cpu_tb.vcd"
     fst_path = out_dir / "cpu_tb.fst"
     report_path = out_dir / "result.json"
+    staged_program = stage_hex_input(program, out_dir / "program.hex")
+    staged_data = stage_hex_input(data, out_dir / "data.hex")
     waveform_conversion: dict[str, object] | None = None
     for stale_path in (
         sim_path,
@@ -548,7 +593,6 @@ def run_simulation(
         report_path,
         out_dir / "summary.json",
         out_dir / "index.html",
-        out_dir / "cpu_trace.gtkw",
         out_dir / "cpu_trace.sucl",
         out_dir / ".surfer" / "config.toml",
         out_dir / "cpu_schematic.dot",
@@ -576,8 +620,8 @@ def run_simulation(
             vvp,
             [
                 str(sim_path),
-                f"+PROGRAM_HEX={program}",
-                f"+DATA_HEX={data}",
+                f"+PROGRAM_HEX={staged_program}",
+                f"+DATA_HEX={staged_data}",
                 f"+RESULT_ADDR={result_addr}",
                 f"+EXPECTED={expected}",
                 f"+CHECK_RESULT={check_result}",
@@ -617,13 +661,21 @@ def run_simulation(
     maybe_generate_schematic(oss_root, out_dir, log_file, schematic)
 
     wave_path = fst_path if fst_path.exists() else vcd_path
-    gtkw_path = write_gtkw_save(out_dir, wave_path) if wave_path.exists() else None
     report_data = read_json_file(report_path)
     run_mode, status_kind, status_label = classify_run(
         returncode=proc.returncode,
         check_result=check_result,
         report_data=report_data,
     )
+    artifacts: dict[str, object] = {
+        "html": str(out_dir / "index.html"),
+        "result_json": str(report_path) if report_path.exists() else None,
+        "summary_json": str(out_dir / "summary.json"),
+        "run_log": str(log_file),
+        "vcd": str(vcd_path) if vcd_path.exists() else None,
+        "fst": str(fst_path) if fst_path.exists() else None,
+        "schematic_svg": str(out_dir / "cpu_schematic.svg") if (out_dir / "cpu_schematic.svg").exists() else None,
+    }
     result = {
         "run_name": run_name,
         "returncode": proc.returncode,
@@ -635,7 +687,6 @@ def run_simulation(
         "data_source": data_source or ("Benchmark data image" if check_result == "1" else "Data image"),
         "vcd": str(vcd_path) if vcd_path.exists() else None,
         "fst": str(fst_path) if fst_path.exists() else None,
-        "gtkw": str(gtkw_path) if gtkw_path is not None and gtkw_path.exists() else None,
         "report": str(report_path) if report_path.exists() else None,
         "log": str(log_file),
         "schematic_svg": str(out_dir / "cpu_schematic.svg") if (out_dir / "cpu_schematic.svg").exists() else None,
@@ -643,30 +694,17 @@ def run_simulation(
         "oss_root": str(oss_root) if oss_root else None,
         "waveform_conversion": waveform_conversion,
         "testbench": report_data,
-        "artifacts": {},
-    }
-    result["artifacts"] = {
-        "html": str(out_dir / "index.html"),
-        "result_json": result["report"],
-        "summary_json": str(out_dir / "summary.json"),
-        "run_log": result["log"],
-        "vcd": result["vcd"],
-        "fst": result["fst"],
-        "gtkw": result["gtkw"],
-        "schematic_svg": result["schematic_svg"],
+        "artifacts": artifacts,
     }
     html_path = write_html_index(out_dir, result, report_path)
     result["html"] = str(html_path)
-    result["artifacts"]["html"] = str(html_path)  # type: ignore[index]
+    artifacts["html"] = str(html_path)
 
     summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
     if wave_viewer is not None and wave_path.exists():
-        if Path(wave_viewer).name.lower().startswith("gtkwave") and gtkw_path is not None:
-            popen_tool(wave_viewer, ["-a", str(gtkw_path), str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
-        else:
-            popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
+        popen_tool(wave_viewer, [str(wave_path)], REPO_ROOT, oss_root, hide_console=True)
 
     return result
 
@@ -684,7 +722,7 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--oss-root", type=Path, default=None)
     parser.add_argument("--oss-bin", type=Path, default=None, help="Deprecated; use --oss-root.")
-    parser.add_argument("--open-wave", choices=("none", "surfer", "gtkwave"), default="none")
+    parser.add_argument("--open-wave", choices=("none", "surfer"), default="none")
     parser.add_argument("--schematic", action="store_true")
     args = parser.parse_args()
 
@@ -707,7 +745,8 @@ def main() -> int:
         data_source=args.data_source,
     )
     print(json.dumps(result, indent=2))
-    return int(result["returncode"])
+    returncode = result.get("returncode", 1)
+    return returncode if isinstance(returncode, int) else 1
 
 
 if __name__ == "__main__":

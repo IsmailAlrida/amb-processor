@@ -11,6 +11,7 @@ import sys
 import textwrap
 import traceback
 import faulthandler
+import html
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -523,9 +524,23 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         cursor.select(QtGui.QTextCursor.SelectionType.WordUnderCursor)
         return cursor.selectedText()
 
+    def _cursor_in_comment(self) -> bool:
+        cursor = self.textCursor()
+        position = cursor.positionInBlock()
+        text = cursor.block().text()
+        comment_start: int | None = None
+        for marker in ("//", ";", "#"):
+            idx = text.find(marker)
+            if idx != -1 and (comment_start is None or idx < comment_start):
+                comment_start = idx
+        return comment_start is not None and position >= comment_start
+
     def _show_completion_popup(self, force: bool = False) -> None:
         try:
             if self._completer is None:
+                return
+            if self._cursor_in_comment():
+                self._completer.popup().hide()
                 return
             prefix = "" if force else self._completion_prefix()
             if not force and len(prefix) < 1:
@@ -599,6 +614,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def _accept_current_completion(self) -> bool:
         if self._completer is None:
             return False
+        if self._cursor_in_comment():
+            self._completer.popup().hide()
+            return False
         popup = self._completer.popup()
         index = popup.currentIndex()
         if not index.isValid():
@@ -615,6 +633,9 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
     def _insert_completion(self, completion: object) -> None:
         try:
             if self._completer is None:
+                return
+            if self._cursor_in_comment():
+                self._completer.popup().hide()
                 return
             if (
                 hasattr(completion, "row")
@@ -651,8 +672,8 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
                     QtCore.Qt.Key.Key_Enter,
                     QtCore.Qt.Key.Key_Tab,
                 ):
-                    self._accept_current_completion()
-                    return
+                    if self._accept_current_completion():
+                        return
                 if event.key() in (QtCore.Qt.Key.Key_Backtab, QtCore.Qt.Key.Key_Escape):
                     self._completer.popup().hide()
                     return
@@ -701,12 +722,18 @@ class TitleBar(QtWidgets.QWidget):
         button_labels: tuple[str, str, str] = ("MIN", "MAX", "X"),
         button_widths: tuple[int, int, int] = (40, 40, 30),
         height: int = 34,
+        background_color: str = "#062513",
     ) -> None:
         super().__init__(parent)
         self.setObjectName("titleBar")
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAutoFillBackground(True)
         self.setFixedHeight(height)
+        self._background_color = QtGui.QColor(background_color)
         self._drag_pos: QtCore.QPoint | None = None
+        palette = self.palette()
+        palette.setColor(QtGui.QPalette.ColorRole.Window, self._background_color)
+        self.setPalette(palette)
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(10, 5, 8, 5)
@@ -747,8 +774,26 @@ class TitleBar(QtWidgets.QWidget):
         else:
             window.showMaximized()
 
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:
+        painter = QtGui.QPainter(self)
+        painter.fillRect(self.rect(), self._background_color)
+        option = QtWidgets.QStyleOption()
+        option.initFrom(self)
+        self.style().drawPrimitive(
+            QtWidgets.QStyle.PrimitiveElement.PE_Widget, option, painter, self
+        )
+
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            handle = self.window().windowHandle()
+            if (
+                not sys.platform.startswith("linux")
+                and handle is not None
+                and handle.startSystemMove()
+            ):
+                self._drag_pos = None
+                event.accept()
+                return
             self._drag_pos = (
                 event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
             )
@@ -801,9 +846,6 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.last_rtl_result: dict[str, object] | None = None
         self.html_windows: dict[Path, QtWidgets.QMainWindow] = {}
         self.rtl_data_hex_override: Path | None = None
-        self.waveform_viewer = str(self.settings.value("rtl/waveform_viewer", "surfer"))
-        if self.waveform_viewer not in {"surfer", "gtkwave"}:
-            self.waveform_viewer = "surfer"
         self._last_reg_changes: set[int] = set()
         self._last_mem_changes: set[int] = set()
         self._highlight_bg = QtGui.QBrush(QtGui.QColor("#00ff6a"))
@@ -1141,10 +1183,17 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         self.toolbar_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
         self.toolbar_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.toolbar_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.toolbar_scroll.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.toolbar_scroll.setAutoFillBackground(True)
+        self.toolbar_scroll.viewport().setObjectName("mainToolbarViewport")
+        self.toolbar_scroll.viewport().setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.toolbar_scroll.viewport().setAutoFillBackground(True)
         self.toolbar_scroll.viewport().installEventFilter(self)
 
         strip = QtWidgets.QWidget()
         strip.setObjectName("mainToolbarStrip")
+        strip.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        strip.setAutoFillBackground(True)
         strip.installEventFilter(self)
         layout = QtWidgets.QHBoxLayout(strip)
         layout.setContentsMargins(8, 5, 8, 5)
@@ -1255,9 +1304,9 @@ class AssemblerWindow(QtWidgets.QMainWindow):
         def build_table(rows: list[tuple[str, str, str]]) -> str:
             body = "\n".join(
                 "<tr>"
-                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'>{mnem}</td>"
-                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'><code style='white-space: normal; overflow-wrap: anywhere;'>{syntax}</code></td>"
-                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'>{note}</td>"
+                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'>{html.escape(mnem)}</td>"
+                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'><code style='white-space: normal; overflow-wrap: anywhere;'>{html.escape(syntax)}</code></td>"
+                f"<td style='border: 1px solid #0a3; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere;'>{html.escape(note)}</td>"
                 "</tr>"
                 for mnem, syntax, note in rows
             )
@@ -1349,12 +1398,12 @@ class AssemblerWindow(QtWidgets.QMainWindow):
             ("Reset", "Simulator state", "Reset registers and reload the assembled program."),
             ("CPU Blueprint", "Docs and latest RTL run", "Open architecture docs, diagrams, authors, and the latest RTL run summary."),
             ("Run RTL Sim", "Verilog testbench", "Export program.hex, run the RTL bench, and generate report/wave files."),
-            ("RTL Options", "Data image + viewer", "Choose/clear an optional data.hex file and select Surfer or GTKWave."),
-            ("Open Waveform", "Latest VCD/FST", "Open the latest RTL waveform with the selected viewer. Surfer is the default; GTKWave can use the curated .gtkw layout."),
+            ("RTL Options", "Data image", "Choose or clear an optional data.hex file for RTL simulation."),
+            ("Open Waveform", "Latest VCD/FST", "Open the latest RTL waveform with Surfer."),
             ("Sample Code", "Samples", "Load a predefined .ambasm example; the array-sum benchmark selects its matching RTL data image."),
         ]
 
-        reg_names = ", ".join(REG_NAMES)
+        reg_names = html.escape(", ".join(REG_NAMES))
 
         return textwrap.dedent(
             f"""
@@ -1395,7 +1444,7 @@ JMP:    opcode7 | imm8
         <p><code>JPEQ</code> and <code>JPBLW</code> compare only <code>CMPA</code> and <code>CMPB</code>. <code>JPBLW</code> is modeled unsigned until the RTL signedness TODO is resolved.</p>
         {build_table(jump_rows)}
         <h4>Toolbar Buttons</h4>
-        <p>The top strip scrolls horizontally when the window is narrow. Use the sample dropdown to load ready-to-run examples; the array-sum benchmark also selects the matching RTL data image. Arbitrary RTL runs are inspection traces, not pass/fail tests. Use <code>RTL Options</code> to choose a custom <code>data.hex</code> file and to select the waveform viewer.</p>
+        <p>The top strip scrolls horizontally when the window is narrow. Use the sample dropdown to load ready-to-run examples; the array-sum benchmark also selects the matching RTL data image. Arbitrary RTL runs are inspection traces, not pass/fail tests. Use <code>RTL Options</code> to choose a custom <code>data.hex</code> file.</p>
         {build_table(toolbar_rows)}
         <h4>Labels & Comments</h4>
         <div style="white-space: pre-wrap; border: 1px solid #0a3; background: #021002; padding: 6px;">
@@ -1425,7 +1474,7 @@ Comments: // ; #
         self.setStyleSheet(
             """
             QMainWindow { background: #030d04; color: #8dffd1; border: 1px solid #16a865; }
-            QWidget { color: #79ffc4; background: transparent; }
+            QWidget { color: #79ffc4; }
             QWidget#panelBox {
                 background: #031405;
                 border: 2px solid #38f3a5;
@@ -1478,6 +1527,7 @@ Comments: // ; #
                 border: 1px solid #39f5a7;
                 margin: 5px 8px 3px 8px;
             }
+            QWidget#mainToolbarViewport,
             QScrollArea#mainToolbarScroll QWidget#qt_scrollarea_viewport {
                 background: #062311;
             }
@@ -1839,6 +1889,7 @@ Comments: // ; #
             title=title,
             button_labels=("-", "□", "×"),
             button_widths=(30, 30, 30),
+            background_color="#e9edf0",
         )
         title_bar.setObjectName("htmlTitleBar")
         title_bar.title_label.setObjectName("htmlTitleLabel")
@@ -1942,43 +1993,16 @@ Comments: // ; #
         current_text = f"Data image: {current_data_hex}" if current_data_hex is not None else "Data image: generated default"
         current_action = menu.addAction(current_text)
         current_action.setEnabled(False)
-        viewer_action = menu.addAction(f"Waveform viewer: {self.waveform_viewer_title()}")
-        viewer_action.setEnabled(False)
         menu.addSeparator()
         choose_action = menu.addAction("Choose data.hex...")
         clear_action = menu.addAction("Clear data image")
         clear_action.setEnabled(self.rtl_data_hex_override is not None)
-        menu.addSeparator()
-        viewer_group = QtGui.QActionGroup(menu)
-        viewer_group.setExclusive(True)
-        surfer_action = menu.addAction("Use Surfer")
-        surfer_action.setCheckable(True)
-        surfer_action.setChecked(self.waveform_viewer == "surfer")
-        viewer_group.addAction(surfer_action)
-        gtkwave_action = menu.addAction("Use GTKWave")
-        gtkwave_action.setCheckable(True)
-        gtkwave_action.setChecked(self.waveform_viewer == "gtkwave")
-        viewer_group.addAction(gtkwave_action)
 
         selected = menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height())))
         if selected == choose_action:
             self.choose_rtl_data_hex()
         elif selected == clear_action:
             self.clear_rtl_data_hex()
-        elif selected == surfer_action:
-            self.set_waveform_viewer("surfer")
-        elif selected == gtkwave_action:
-            self.set_waveform_viewer("gtkwave")
-
-    def waveform_viewer_title(self) -> str:
-        return "Surfer" if self.waveform_viewer == "surfer" else "GTKWave"
-
-    def set_waveform_viewer(self, viewer: str) -> None:
-        if viewer not in {"surfer", "gtkwave"}:
-            return
-        self.waveform_viewer = viewer
-        self.settings.setValue("rtl/waveform_viewer", viewer)
-        self.statusBar().showMessage(f"Waveform viewer: {self.waveform_viewer_title()}", 4000)
 
     @staticmethod
     def _dark_file_dialog_stylesheet() -> str:
@@ -2098,6 +2122,7 @@ Comments: // ; #
             title=title,
             button_labels=("-", "□", "×"),
             button_widths=(30, 30, 30),
+            background_color="#031305",
         )
         title_bar.setObjectName("darkDialogTitleBar")
         title_bar.title_label.setObjectName("darkDialogTitleLabel")
@@ -2262,7 +2287,6 @@ Comments: // ; #
             "run_log": summary_payload.get("log") or artifact_paths.get("run_log"),
             "vcd": summary_payload.get("vcd") or artifact_paths.get("vcd"),
             "fst": summary_payload.get("fst") or artifact_paths.get("fst"),
-            "gtkw": summary_payload.get("gtkw") or artifact_paths.get("gtkw"),
         }
         artifact_urls = {
             key: url
@@ -2322,44 +2346,16 @@ Comments: // ; #
         if wave_path is None:
             self.statusBar().showMessage("No waveform yet. Run RTL Sim first.", 5000)
             return
-        gtkw_path = self._latest_artifact("gtkw")
         try:
             runner = self._load_rtl_runner()
             oss_root = bundled_oss_root()
             oss_root_arg = oss_root if oss_root.exists() else None
-            fallback_used = False
+            viewer = runner.tool_path("surfer", oss_root_arg)
+            if self._tool_is_unresolved(viewer, "surfer"):
+                raise FileNotFoundError("Surfer not found. Install Surfer or use the bundled OSS CAD Suite.")
 
-            if self.waveform_viewer == "surfer":
-                viewer = runner.tool_path("surfer", oss_root_arg)
-                if self._tool_is_unresolved(viewer, "surfer"):
-                    viewer = runner.tool_path("gtkwave", oss_root_arg)
-                    fallback_used = True
-                    args = ["-a", str(gtkw_path), str(wave_path)] if gtkw_path is not None else [str(wave_path)]
-                else:
-                    args = [str(wave_path)]
-            else:
-                viewer = runner.tool_path("gtkwave", oss_root_arg)
-                if self._tool_is_unresolved(viewer, "gtkwave"):
-                    viewer = runner.tool_path("surfer", oss_root_arg)
-                    fallback_used = True
-                    args = [str(wave_path)]
-                elif gtkw_path is not None:
-                    args = ["-a", str(gtkw_path), str(wave_path)]
-                else:
-                    args = [str(wave_path)]
-
-            if self._tool_is_unresolved(viewer, "surfer") or self._tool_is_unresolved(viewer, "gtkwave"):
-                raise FileNotFoundError("No waveform viewer found. Install Surfer or GTKWave, or install the repo-local OSS CAD Suite.")
-
-            if Path(viewer).name.lower().startswith("gtkwave") and gtkw_path is not None and args == [str(wave_path)]:
-                args = ["-a", str(gtkw_path), str(wave_path)]
-
-            runner.popen_tool(viewer, args, runner.REPO_ROOT, oss_root_arg, hide_console=True)
-            viewer_name = Path(viewer).name
-            if fallback_used:
-                self.statusBar().showMessage(f"Opened waveform with fallback {viewer_name}: {wave_path}", 5000)
-            else:
-                self.statusBar().showMessage(f"Opened waveform with {viewer_name}: {wave_path}", 3000)
+            runner.popen_tool(viewer, [str(wave_path)], runner.REPO_ROOT, oss_root_arg, hide_console=True)
+            self.statusBar().showMessage(f"Opened waveform with Surfer: {wave_path}", 3000)
         except Exception as exc:
             self._log_nonfatal("open_latest_waveform", exc)
             self.statusBar().showMessage(f"Could not open waveform: {exc}", 8000)
@@ -2541,6 +2537,16 @@ Comments: // ; #
         self.setGeometry(x, y, w, h)
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if (
+            hasattr(self, "title_bar")
+            and isinstance(obj, QtWidgets.QWidget)
+            and (
+                obj is self.title_bar
+                or self.title_bar.isAncestorOf(obj)
+            )
+        ):
+            return False
+
         if (
             hasattr(self, "toolbar_scroll")
             and isinstance(obj, QtWidgets.QWidget)

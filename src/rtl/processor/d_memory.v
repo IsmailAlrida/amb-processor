@@ -33,6 +33,12 @@ module dmem #(
 `ifndef SYNTHESIS
     //! Loads data.hex or the DATA_HEX plusarg image for simulation.
     initial begin
+
+        integer init_idx;
+        
+        for (init_idx = 0; init_idx < DEPTH; init_idx = init_idx + 1)
+            dmemory[init_idx] = 8'h00;
+
         data_hex = "data.hex";
         if ($value$plusargs("DATA_HEX=%s", data_hex)) begin
             $display("dmem: loading %0s", data_hex);

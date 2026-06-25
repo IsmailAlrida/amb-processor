@@ -178,21 +178,6 @@ def is_elf_binary(path: Path) -> bool:
         return False
 
 
-def is_mach_o_binary(path: Path) -> bool:
-    try:
-        with path.open("rb") as handle:
-            return handle.read(4) in {
-                b"\xfe\xed\xfa\xce",
-                b"\xfe\xed\xfa\xcf",
-                b"\xce\xfa\xed\xfe",
-                b"\xcf\xfa\xed\xfe",
-                b"\xca\xfe\xba\xbe",
-                b"\xca\xfe\xba\xbf",
-            }
-    except OSError:
-        return False
-
-
 def linux_loader(source_root: Path) -> Path | None:
     lib_dir = source_root / "lib"
     for name in ("ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1"):
@@ -383,14 +368,8 @@ def pyinstaller_tuple(source: Path, dest: Path) -> tuple[str, str]:
 
 
 def split_pyinstaller_entries(entries: dict[Path, Path], options: BundleOptions) -> BundleEntries:
-    datas: list[tuple[str, str]] = []
-    binaries: list[tuple[str, str]] = []
-    for source, dest in sorted(entries.items(), key=lambda item: str(item[0])):
-        if options.platform_name.startswith("darwin") and is_mach_o_binary(source):
-            binaries.append(pyinstaller_tuple(source, dest))
-        else:
-            datas.append(pyinstaller_tuple(source, dest))
-    return BundleEntries(datas=datas, binaries=binaries)
+    datas = [pyinstaller_tuple(source, dest) for source, dest in sorted(entries.items(), key=lambda item: str(item[0]))]
+    return BundleEntries(datas=datas, binaries=[])
 
 
 def collect_oss_cad_suite_bundle(
